@@ -1,12 +1,51 @@
 @import '../../app.wxss';
 
 .hero { overflow: hidden; }
-.hero-score { margin-top: 18rpx; display:flex; align-items:center; justify-content:space-between; background:#f8fbff; border:1rpx solid #dbeafe; border-radius:16rpx; padding:16rpx 18rpx; }
-.score-number { font-size: 52rpx; font-weight: 800; line-height:1; margin-top:6rpx; color:#0f172a; }
+.hero-score {
+  margin-top: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fbff;
+  border: 2rpx solid #bfdbfe;
+  border-radius: 16rpx;
+  padding: 18rpx;
+}
 
-.factory-actions { margin-top: 18rpx; background:#f8fafc; border:1rpx solid #e2e8f0; border-radius:16rpx; padding:16rpx; }
-.grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12rpx; }
-.chip-btn { background:#e2e8f0; color:#0f172a; border-radius:12rpx; padding:16rpx 10rpx; text-align:center; font-size:24rpx; }
-.chip-btn:active { opacity:.85; }
+.score-number {
+  font-size: 58rpx;
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 8rpx;
+  color: #0f172a;
+}
 
-.stat-card { margin-bottom:0; }
+.factory-actions {
+  margin-top: 18rpx;
+  background: #f8fafc;
+  border: 2rpx solid #dbe3ef;
+  border-radius: 16rpx;
+  padding: 16rpx;
+}
+
+/* 长者友好：三项管理入口改成2列，按钮更大 */
+.grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12rpx;
+}
+
+.chip-btn {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-radius: 14rpx;
+  min-height: 84rpx;
+  padding: 16rpx 10rpx;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 52rpx;
+}
+
+.chip-btn:active { opacity: .85; }
+.stat-card { margin-bottom: 0; }
