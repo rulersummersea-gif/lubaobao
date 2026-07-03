@@ -1,5 +1,7 @@
 <view class="container">
   <view class="card">
+    <view class="sub">当前环境：{{envKey}}</view>
+    <view class="btn-secondary" style="margin-top:12rpx;" bindtap="switchEnv">切换环境（开发）</view>
     <view class="title">{{user.name || '未登录'}}</view>
     <view class="sub">角色：{{user.role || '-'}}</view>
     <view class="sub">企业：{{enterprise.name || '-'}}</view>

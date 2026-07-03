@@ -1,46 +1,76 @@
-// services/http.js
-// 真实后端请求层：统一处理 baseURL、token、错误提示、超时、返回结构适配。
 const config = require('../config/index')
-const { getToken } = require('../utils/auth')
-const { onAuthFailed } = require('../utils/guard')
+const { getToken, clearToken } = require('../utils/auth')
+const { clearState } = require('../store/app-state')
 
-function unwrapResponse(raw) {
-  if (raw && typeof raw === 'object') {
-    if (Object.prototype.hasOwnProperty.call(raw, 'code')) {
-      if (raw.code === 0 || raw.code === 200) return raw.data
-      if (raw.code === 401) {
-        onAuthFailed()
-        throw new Error(raw.message || '登录已失效')
-      }
-      throw new Error(raw.message || '请求失败')
-    }
-    if (Object.prototype.hasOwnProperty.call(raw, 'success')) {
-      if (raw.success) return raw.data !== undefined ? raw.data : raw
-      throw new Error(raw.message || '请求失败')
-    }
+function unwrapResponse(payload) {
+  if (payload == null) return payload
+
+  // 兼容：{ code, message, data }
+  if (typeof payload.code !== 'undefined') {
+    const ok = Number(payload.code) === 0 || Number(payload.code) === 200
+    if (!ok) throw new Error(payload.message || payload.msg || '请求失败')
+    return typeof payload.data === 'undefined' ? payload : payload.data
   }
-  return raw
+
+  // 兼容：{ success, data, message }
+  if (typeof payload.success !== 'undefined') {
+    if (!payload.success) throw new Error(payload.message || payload.msg || '请求失败')
+    return typeof payload.data === 'undefined' ? payload : payload.data
+  }
+
+  // 兼容：{ data }
+  if (typeof payload.data !== 'undefined' && Object.keys(payload).length <= 3) {
+    return payload.data
+  }
+
+  return payload
+}
+
+function on401() {
+  try { clearToken() } catch (e) {}
+  try { clearState() } catch (e) {}
+  const pages = getCurrentPages ? getCurrentPages() : []
+  const current = pages.length ? pages[pages.length - 1].route : ''
+  if (current !== 'pages/login/login') {
+    wx.reLaunch({ url: '/pages/login/login' })
+  }
 }
 
 function http({ url, method = 'GET', data = {}, header = {} }) {
+  const cfg = config.getConfig ? config.getConfig() : config
+  const token = getToken()
+
   return new Promise((resolve, reject) => {
     wx.request({
-      url: `${config.baseURL}${url}`,
+      url: `${cfg.baseURL}${url}`,
       method,
       data,
-      timeout: config.timeout || 15000,
+      timeout: cfg.timeout || 15000,
       header: {
-        Authorization: getToken() ? `Bearer ${getToken()}` : '',
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...header
       },
       success: (res) => {
         try {
-          resolve(unwrapResponse(res.data))
+          const status = res.statusCode
+          if (status === 401) {
+            on401()
+            return reject(new Error('登录已失效，请重新登录'))
+          }
+          if (status < 200 || status >= 300) {
+            const requestId = (res.header && (res.header['x-request-id'] || res.header['X-Request-Id'])) || ''
+            return reject(new Error(`HTTP ${status}${requestId ? ` (rid:${requestId})` : ''}`))
+          }
+          const unwrapped = unwrapResponse(res.data)
+          resolve(unwrapped)
         } catch (e) {
           reject(e)
         }
       },
-      fail: reject
+      fail: (err) => {
+        reject(new Error((err && err.errMsg) || '网络请求失败'))
+      }
     })
   })
 }
