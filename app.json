@@ -7,6 +7,7 @@
     "pages/mine/mine",
     "pages/activate/activate",
     "pages/boiler/boiler",
+    "pages/boiler-register/boiler-register",
     "pages/result/result",
     "pages/report/report",
     "pages/record-detail/record-detail",

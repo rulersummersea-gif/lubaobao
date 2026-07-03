@@ -12,6 +12,9 @@ module.exports = {
   getBoilers() {
     return wait(mockBoilers)
   },
+  createBoiler(data) {
+    return wait({ id: Date.now(), ...data })
+  },
   verifyMaterialPack(code) {
     return wait({ valid: true, code: code || mockMaterialPack.code, pack: mockMaterialPack })
   },

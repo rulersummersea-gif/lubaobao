@@ -1,0 +1,21 @@
+<view class="container">
+  <view class="card">
+    <view class="section-title">锅炉属性信息（12项）</view>
+    <view class="sub">请按设备铭牌填写，带 * 为必填</view>
+
+    <view class="field"><view class="label">1. 设备代码 *</view><input class="input" placeholder="如 110010709202500028" value="{{form.deviceCode}}" data-key="deviceCode" bindinput="onInput"/></view>
+    <view class="field"><view class="label">2. 产品编号/出厂编号 *</view><input class="input" placeholder="如 MQ251254007W" value="{{form.productNo}}" data-key="productNo" bindinput="onInput"/></view>
+    <view class="field"><view class="label">3. 锅炉型号 *</view><input class="input" placeholder="如 DZA4-1.25-SCI" value="{{form.model}}" data-key="model" bindinput="onInput"/></view>
+    <view class="field"><view class="label">4. 设备类型 *</view><picker mode="selector" range="{{boilerTypes}}" value="{{typeIndex}}" bindchange="onTypeChange"><view class="picker">{{form.deviceType || '请选择设备类型'}}</view></picker></view>
+    <view class="field"><view class="label">5. 额定蒸发量(t/h)/额定热功率 *</view><input class="input" placeholder="如 4t/h" value="{{form.ratedCapacity}}" data-key="ratedCapacity" bindinput="onInput"/></view>
+    <view class="field"><view class="label">6. 额定工作压力(MPa) *</view><input class="input" placeholder="如 1.25" value="{{form.ratedPressure}}" data-key="ratedPressure" bindinput="onInput"/></view>
+    <view class="field"><view class="label">7. 额定蒸汽温度(℃)</view><input class="input" placeholder="如 194" value="{{form.ratedSteamTemp}}" data-key="ratedSteamTemp" bindinput="onInput"/></view>
+    <view class="field"><view class="label">8. 设计燃料类型 *</view><input class="input" placeholder="如 生物质颗粒" value="{{form.fuelType}}" data-key="fuelType" bindinput="onInput"/></view>
+    <view class="field"><view class="label">9. 热效率(%)</view><input class="input" placeholder="如 84.2" value="{{form.efficiency}}" data-key="efficiency" bindinput="onInput"/></view>
+    <view class="field"><view class="label">10. 制造单位(厂家) *</view><input class="input" placeholder="如 青岛胜利锅炉有限公司" value="{{form.manufacturer}}" data-key="manufacturer" bindinput="onInput"/></view>
+    <view class="field"><view class="label">11. 制造日期 *</view><input class="input" placeholder="如 2025-08" value="{{form.manufactureDate}}" data-key="manufactureDate" bindinput="onInput"/></view>
+    <view class="field"><view class="label">12. 制造许可证编号(含级别) *</view><input class="input" placeholder="如 A级 TS2110709-2027" value="{{form.licenseNo}}" data-key="licenseNo" bindinput="onInput"/></view>
+
+    <view class="btn-primary" bindtap="submit">提交注册</view>
+  </view>
+</view>

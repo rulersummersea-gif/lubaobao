@@ -18,6 +18,7 @@
       <view class="btn-secondary" bindtap="goActivate">激活材料包</view>
       <view class="btn-secondary" bindtap="goBoilers">选择锅炉</view>
       <view class="btn-secondary" bindtap="goReport">查看月报</view>
+      <view class="btn-secondary" bindtap="goBoilerRegister">锅炉注册</view>
     </view>
   </view>
 

@@ -1,0 +1,4 @@
+.stat-card { background:#fff; border-radius:16rpx; padding:20rpx; }
+.kpi { font-size:40rpx; font-weight:600; color:#0f172a; }
+.sub { color:#64748b; margin-top:6rpx; }
+.hint { color:#94a3b8; font-size:22rpx; margin-top:4rpx; }

@@ -11,6 +11,7 @@ function request({ url, method = 'GET', data = {} }) {
       '/auth/login': () => mock.login(data),
       '/dashboard': () => mock.getDashboard(),
       '/boilers': () => mock.getBoilers(),
+      '/boilers/create': () => mock.createBoiler(data),
       '/material-packs/verify': () => mock.verifyMaterialPack(data.code),
       '/material-packs/activate': () => mock.activateMaterialPack(data),
       '/inspections/create': () => mock.createInspection(data),

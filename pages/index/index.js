@@ -33,5 +33,6 @@ Page({
   goActivate() { wx.navigateTo({ url: '/pages/activate/activate' }) },
   goBoilers() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
   goReport() { wx.navigateTo({ url: '/pages/report/report' }) },
+  goBoilerRegister() { wx.navigateTo({ url: '/pages/boiler-register/boiler-register' }) },
   goAlerts() { wx.navigateTo({ url: '/pages/alerts/alerts' }) }
 })

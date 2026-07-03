@@ -1,4 +1,8 @@
-Com
-...[参数过长，已省略 10946 字符]...
-GoBack() { wx.navigateBack() }
+Component({
+  properties: {
+    label: { type: String, value: '' },
+    value: { type: [String, Number], value: '-' },
+    unit: { type: String, value: '' },
+    hint: { type: String, value: '' }
+  }
 })

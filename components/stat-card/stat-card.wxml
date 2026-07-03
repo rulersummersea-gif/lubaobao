@@ -1,0 +1,5 @@
+<view class="stat-card">
+  <view class="kpi">{{value}}<text wx:if="{{unit}}">{{unit}}</text></view>
+  <view class="sub">{{label}}</view>
+  <view class="hint" wx:if="{{hint}}">{{hint}}</view>
+</view>
