@@ -2,6 +2,7 @@
   <view class="hero card">
     <view class="title">{{enterprise.name || 'XXXXX有限公司'}}</view>
     <view class="sub">当前用户：{{user.name || '-'}}｜当前锅炉：{{currentBoiler.name || '未选择'}}</view>
+
     <view class="hero-score">
       <view>
         <view class="sub">锅炉健康评分</view>
@@ -9,16 +10,22 @@
       </view>
       <view class="tag tag-warn">持续关注</view>
     </view>
+
+    <view class="factory-actions">
+      <view class="section-title" style="margin-bottom:10rpx;">工厂管理</view>
+      <view class="grid-3">
+        <view class="chip-btn" bindtap="goActivate">激活材料包</view>
+        <view class="chip-btn" bindtap="goBoilerRegister">信息注册</view>
+        <view class="chip-btn" bindtap="goBoilers">选择锅炉</view>
+      </view>
+    </view>
   </view>
 
   <view class="card">
     <view class="section-title">快捷操作</view>
     <view class="grid-2">
       <view class="btn-primary" bindtap="goInspect">开始巡检</view>
-      <view class="btn-secondary" bindtap="goActivate">激活材料包</view>
-      <view class="btn-secondary" bindtap="goBoilers">选择锅炉</view>
       <view class="btn-secondary" bindtap="goReport">查看月报</view>
-      <view class="btn-secondary" bindtap="goBoilerRegister">锅炉注册</view>
     </view>
   </view>
 

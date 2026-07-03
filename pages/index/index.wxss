@@ -1,1 +1,12 @@
 @import '../../app.wxss';
+
+.hero { overflow: hidden; }
+.hero-score { margin-top: 18rpx; display:flex; align-items:center; justify-content:space-between; background:#f8fbff; border:1rpx solid #dbeafe; border-radius:16rpx; padding:16rpx 18rpx; }
+.score-number { font-size: 52rpx; font-weight: 800; line-height:1; margin-top:6rpx; color:#0f172a; }
+
+.factory-actions { margin-top: 18rpx; background:#f8fafc; border:1rpx solid #e2e8f0; border-radius:16rpx; padding:16rpx; }
+.grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12rpx; }
+.chip-btn { background:#e2e8f0; color:#0f172a; border-radius:12rpx; padding:16rpx 10rpx; text-align:center; font-size:24rpx; }
+.chip-btn:active { opacity:.85; }
+
+.stat-card { margin-bottom:0; }
