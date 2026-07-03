@@ -1,19 +1,37 @@
 @import '../../app.wxss';
 
-.hero { overflow: hidden; }
+.hero {
+  overflow: hidden;
+  padding-bottom: 24rpx;
+}
+
+.hero-meta {
+  margin-top: 12rpx;
+  display: grid;
+  gap: 4rpx;
+}
+
 .hero-score {
-  margin-top: 18rpx;
+  margin-top: 22rpx;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #f8fbff;
+  gap: 20rpx;
+  background: #eff6ff;
   border: 2rpx solid #bfdbfe;
   border-radius: 16rpx;
-  padding: 18rpx;
+  padding: 22rpx 24rpx;
+}
+
+.score-label {
+  color: #334155;
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .score-number {
-  font-size: 58rpx;
+  font-size: 70rpx;
   font-weight: 800;
   line-height: 1;
   margin-top: 8rpx;
@@ -21,31 +39,82 @@
 }
 
 .factory-actions {
-  margin-top: 18rpx;
+  margin-top: 22rpx;
   background: #f8fafc;
   border: 2rpx solid #dbe3ef;
   border-radius: 16rpx;
-  padding: 16rpx;
+  padding: 20rpx;
 }
 
-/* 长者友好：三项管理入口改成2列，按钮更大 */
-.grid-3 {
+.management-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12rpx;
+  gap: 16rpx;
 }
 
-.chip-btn {
-  background: #e2e8f0;
+.manage-btn {
+  min-height: 108rpx;
+  padding: 20rpx 22rpx;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: #ffffff;
   color: #0f172a;
-  border-radius: 14rpx;
-  min-height: 84rpx;
-  padding: 16rpx 10rpx;
-  text-align: center;
-  font-size: 28rpx;
-  font-weight: 700;
-  line-height: 52rpx;
+  border: 2rpx solid #cbd5e1;
+  border-radius: 16rpx;
 }
 
-.chip-btn:active { opacity: .85; }
+.manage-wide {
+  grid-column: 1 / 3;
+}
+
+.manage-title,
+.action-title {
+  font-size: 36rpx;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.primary-action,
+.secondary-action {
+  min-height: 118rpx;
+  padding: 24rpx 28rpx;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border-radius: 18rpx;
+}
+
+.primary-action {
+  background: #1d4ed8;
+  color: #ffffff;
+  box-shadow: 0 8rpx 22rpx rgba(29, 78, 216, 0.22);
+}
+
+.secondary-action {
+  margin-top: 16rpx;
+  background: #eef2f7;
+  color: #0f172a;
+  border: 2rpx solid #d6dee9;
+}
+
+.manage-btn:active,
+.primary-action:active,
+.secondary-action:active { opacity: .86; }
+
 .stat-card { margin-bottom: 0; }
+
+@media (max-width: 360px) {
+  .management-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .manage-wide {
+    grid-column: auto;
+  }
+}

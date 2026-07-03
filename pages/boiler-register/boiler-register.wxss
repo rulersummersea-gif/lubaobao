@@ -1,11 +1,11 @@
 @import '../../app.wxss';
 
-.field { margin-top: 18rpx; }
+.field { margin-top: 22rpx; }
 .label {
   color: #1e293b;
-  font-size: 30rpx;
-  font-weight: 700;
-  margin-bottom: 8rpx;
+  font-size: 34rpx;
+  font-weight: 800;
+  margin-bottom: 10rpx;
   line-height: 1.5;
 }
 
@@ -14,7 +14,9 @@
   background: #f8fafc;
   border: 2rpx solid #cbd5e1;
   border-radius: 14rpx;
-  padding: 18rpx 20rpx;
-  font-size: 30rpx;
+  min-height: 96rpx;
+  padding: 22rpx 24rpx;
+  box-sizing: border-box;
+  font-size: 32rpx;
   color: #0f172a;
 }
