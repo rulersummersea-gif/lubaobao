@@ -1,0 +1,58 @@
+<view class="container">
+  <view class="hero card">
+    <view class="title">{{enterprise.name || 'XXXXX有限公司'}}</view>
+    <view class="sub">当前用户：{{user.name || '-'}}｜当前锅炉：{{currentBoiler.name || '未选择'}}</view>
+    <view class="hero-score">
+      <view>
+        <view class="sub">锅炉健康评分</view>
+        <view class="score-number">72</view>
+      </view>
+      <view class="tag tag-warn">持续关注</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">快捷操作</view>
+    <view class="grid-2">
+      <view class="btn-primary" bindtap="goInspect">开始巡检</view>
+      <view class="btn-secondary" bindtap="goActivate">激活材料包</view>
+      <view class="btn-secondary" bindtap="goBoilers">选择锅炉</view>
+      <view class="btn-secondary" bindtap="goReport">查看月报</view>
+    </view>
+  </view>
+
+  <view class="grid-2">
+    <block wx:for="{{stats}}" wx:key="label">
+      <view class="card stat-card">
+        <view class="kpi">{{item.value}}</view>
+        <view class="sub">{{item.label}}</view>
+      </view>
+    </block>
+  </view>
+
+  <view class="card">
+    <view class="row" style="margin-bottom:12rpx;">
+      <view class="section-title">异常提醒</view>
+      <view class="sub" bindtap="goAlerts" style="color:#2563eb;">查看全部</view>
+    </view>
+    <block wx:if="{{alerts.length}}">
+      <block wx:for="{{alerts}}" wx:key="title">
+        <view class="list-item">
+          <view class="row">
+            <view>
+              <view>{{item.title}}</view>
+              <view class="sub">{{item.desc}}</view>
+            </view>
+            <view class="tag tag-warn">预警</view>
+          </view>
+        </view>
+      </block>
+    </block>
+    <view wx:else class="sub">暂无异常提醒</view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">最近巡检摘要</view>
+    <view class="sub">最近一次结果：pH偏低、硬度偏高，建议补加药剂并检查软化器。</view>
+  </view>
+</view>

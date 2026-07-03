@@ -1,0 +1,25 @@
+<view class="container" wx:if="{{detail}}">
+  <view class="card">
+    <view class="title" style="font-size:30rpx;">{{detail.boilerName}}</view>
+    <view class="sub">{{detail.time}}</view>
+    <view class="sub">{{detail.summary}}</view>
+  </view>
+  <view class="card">
+    <view class="section-title">检测明细</view>
+    <block wx:for="{{detail.items}}" wx:key="itemName">
+      <view class="list-item row">
+        <view>{{item.itemName}}</view>
+        <view>{{item.value}}</view>
+      </view>
+    </block>
+  </view>
+  <view class="card">
+    <view class="section-title">诊断建议</view>
+    <block wx:for="{{detail.diagnosis}}" wx:key="title">
+      <view class="list-item">
+        <view>{{item.title}}</view>
+        <view class="sub">{{item.advice}}</view>
+      </view>
+    </block>
+  </view>
+</view>

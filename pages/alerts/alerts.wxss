@@ -1,0 +1,2 @@
+@import '../../app.wxss';
+.title-sm { font-size: 30rpx; font-weight: 600; }

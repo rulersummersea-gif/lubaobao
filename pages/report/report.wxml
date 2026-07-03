@@ -1,0 +1,16 @@
+<view class="container" wx:if="{{report}}">
+  <view class="card">
+    <view class="title">月度健康报告</view>
+    <view class="sub">健康评分 {{report.score}}</view>
+  </view>
+  <view class="grid-2">
+    <view class="card"><view class="kpi">{{report.inspectionCount}}</view><view class="sub">巡检次数</view></view>
+    <view class="card"><view class="kpi">{{report.abnormalCount}}</view><view class="sub">异常次数</view></view>
+  </view>
+  <view class="card">
+    <view class="section-title">本月建议</view>
+    <block wx:for="{{report.suggestions}}" wx:key="*this">
+      <view class="list-item">{{item}}</view>
+    </block>
+  </view>
+</view>

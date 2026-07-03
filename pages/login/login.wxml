@@ -1,0 +1,8 @@
+<view class="container">
+  <view class="card" style="margin-top:120rpx; text-align:center;">
+    <view class="title">炉保保智能®</view>
+    <view class="sub" style="margin-top:16rpx;">智能锅炉水质巡检系统</view>
+    <view style="height:40rpx"></view>
+    <view class="btn-primary" bindtap="handleLogin">微信一键登录（Mock）</view>
+  </view>
+</view>

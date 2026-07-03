@@ -1,0 +1,14 @@
+<view class="container">
+  <block wx:for="{{list}}" wx:key="id">
+    <view class="card" data-id="{{item.id}}" bindtap="goDetail">
+      <view class="row">
+        <view>
+          <view>{{item.boilerName}}</view>
+          <view class="sub">{{item.time}}</view>
+          <view class="sub">{{item.summary}}</view>
+        </view>
+        <view class="tag {{item.riskLevel === 'warning' ? 'tag-warn' : 'tag-normal'}}">{{item.riskLevel === 'warning' ? '预警' : '正常'}}</view>
+      </view>
+    </view>
+  </block>
+</view>

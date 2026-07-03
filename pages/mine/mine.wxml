@@ -1,0 +1,9 @@
+<view class="container">
+  <view class="card">
+    <view class="title">{{user.name || '未登录'}}</view>
+    <view class="sub">角色：{{user.role || '-'}}</view>
+    <view class="sub">企业：{{enterprise.name || '-'}}</view>
+    <view class="sub">当前锅炉：{{boiler.name || '未选择'}}</view>
+  </view>
+  <view class="btn-secondary" bindtap="logout">退出登录</view>
+</view>

@@ -1,0 +1,34 @@
+<view class="container" wx:if="{{result}}">
+  <view class="card">
+    <view class="row">
+      <view class="title">巡检结果</view>
+      <view class="tag tag-warn">{{result.riskLevel === 'warning' ? '预警' : '正常'}}</view>
+    </view>
+  </view>
+  <view class="card">
+    <view class="section-title">检测值</view>
+    <block wx:for="{{result.items}}" wx:key="itemName">
+      <view class="list-item row">
+        <view>
+          <view>{{item.itemName}}</view>
+          <view class="sub">正常范围：{{item.normalRange}}</view>
+        </view>
+        <view style="text-align:right;">
+          <view>{{item.value}}</view>
+          <view class="sub">{{item.abnormal ? '异常' : '正常'}}</view>
+        </view>
+      </view>
+    </block>
+  </view>
+  <view class="card">
+    <view class="section-title">智能诊断</view>
+    <block wx:for="{{result.diagnosis}}" wx:key="title">
+      <view class="list-item">
+        <view>{{item.title}}</view>
+        <view class="sub">原因：{{item.reason}}</view>
+        <view class="sub">建议：{{item.advice}}</view>
+      </view>
+    </block>
+  </view>
+  <view class="btn-primary" bindtap="submitRecord">确认提交</view>
+</view>

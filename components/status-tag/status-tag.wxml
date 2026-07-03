@@ -1,0 +1,1 @@
+<view class="status-tag status-{{type}}">{{text}}</view>

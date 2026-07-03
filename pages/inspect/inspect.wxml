@@ -1,0 +1,23 @@
+<view class="container">
+  <view class="card">
+    <view class="title">发起巡检</view>
+    <view class="sub">当前锅炉：{{currentBoiler ? currentBoiler.name : '未选择'}}</view>
+    <view class="btn-secondary" bindtap="goChooseBoiler">选择锅炉</view>
+  </view>
+
+  <view class="card">
+    <view class="title">检测准备</view>
+    <view class="sub">材料包编码：{{materialPackCode || '未扫码'}}</view>
+    <view class="btn-secondary" bindtap="mockScanPack">模拟扫码材料包</view>
+    <view style="height:16rpx"></view>
+    <view class="btn-secondary" bindtap="mockTakePhoto">模拟拍照上传</view>
+    <view class="tip-box">说明：当前版本为原型，扫码与拍照为占位交互，用于打通业务流程。</view>
+    <view wx:if="{{previewImage}}" class="preview-box">
+      <image class="preview-img" src="{{previewImage}}" mode="aspectFill"></image>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="btn-primary" bindtap="startInspection">开始巡检</view>
+  </view>
+</view>

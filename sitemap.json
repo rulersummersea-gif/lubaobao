@@ -1,0 +1,4 @@
+{
+  "desc": "炉保保智能小程序原型 sitemap",
+  "rules": [{"action": "allow", "page": "*"}]
+}

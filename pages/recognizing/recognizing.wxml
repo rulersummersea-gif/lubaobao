@@ -1,0 +1,8 @@
+<view class="container">
+  <view class="card" style="text-align:center; margin-top:120rpx;">
+    <view class="title">识别分析中</view>
+    <view class="sub">系统正在解析比色卡与试纸颜色，请稍候…</view>
+    <view class="loader"></view>
+    <view wx:for="{{steps}}" wx:key="*this" class="sub" style="margin-top:12rpx;">{{index + 1}}. {{item}}</view>
+  </view>
+</view>

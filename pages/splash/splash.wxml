@@ -1,0 +1,7 @@
+<view class="container">
+  <view class="card" style="text-align:center; margin-top:160rpx;">
+    <view class="title">炉保保智能®</view>
+    <view class="sub" style="margin-top:20rpx;">智能锅炉水质巡检系统</view>
+    <view class="btn-primary" style="margin-top:40rpx;" bindtap="enter">进入系统</view>
+  </view>
+</view>

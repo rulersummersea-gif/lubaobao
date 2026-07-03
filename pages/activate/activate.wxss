@@ -1,0 +1,2 @@
+@import '../../app.wxss';
+.pack-meta { margin-top: 16rpx; padding: 20rpx; border-radius: 16rpx; background: #f8fafc; }

@@ -1,0 +1,3 @@
+@import '../../app.wxss';
+.loader { width: 88rpx; height: 88rpx; border: 8rpx solid #dbeafe; border-top-color: #2563eb; border-radius: 50%; margin: 32rpx auto; animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }

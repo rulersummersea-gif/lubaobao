@@ -1,0 +1,11 @@
+<view class="container">
+  <view class="card" wx:for="{{list}}" wx:key="title">
+    <view class="row">
+      <view>
+        <view class="title-sm">{{item.title}}</view>
+        <view class="sub">{{item.desc}}</view>
+      </view>
+      <status-tag type="warning" text="预警"></status-tag>
+    </view>
+  </view>
+</view>

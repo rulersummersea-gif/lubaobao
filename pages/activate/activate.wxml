@@ -1,0 +1,15 @@
+<view class="container">
+  <view class="card">
+    <view class="section-title">材料包激活</view>
+    <input class="input" value="{{code}}" bindinput="onInput" placeholder="输入或扫码材料包编码" />
+    <view style="height:20rpx"></view>
+    <view class="btn-primary" bindtap="verifyPack">校验材料包</view>
+  </view>
+  <view class="card" wx:if="{{pack}}">
+    <view class="title" style="font-size:30rpx;">{{pack.code}}</view>
+    <view class="sub">类型：{{pack.type}} ｜ 有效期：{{pack.expireAt}}</view>
+    <view class="sub" style="margin-top:8rpx;">当前锅炉：{{getApp().globalData.currentBoiler.name || '未选择'}}</view>
+    <view style="height:20rpx"></view>
+    <view class="btn-primary" bindtap="activatePack">绑定当前锅炉并激活</view>
+  </view>
+</view>
