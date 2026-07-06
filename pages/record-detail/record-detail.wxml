@@ -1,15 +1,18 @@
 <view class="container" wx:if="{{detail}}">
   <view class="card">
-    <view class="title" style="font-size:30rpx;">{{detail.boilerName}}</view>
+    <view class="title">{{detail.boilerName}}</view>
     <view class="sub">{{detail.time}}</view>
     <view class="sub">{{detail.summary}}</view>
   </view>
   <view class="card">
     <view class="section-title">检测明细</view>
-    <block wx:for="{{detail.items}}" wx:key="itemName">
+    <block wx:for="{{detail.items}}" wx:key="name">
       <view class="list-item row">
-        <view>{{item.itemName}}</view>
-        <view>{{item.value}}</view>
+        <view>{{item.name}}</view>
+        <view style="text-align:right;">
+          <view>{{item.value}}</view>
+          <view class="sub">{{item.statusText}}</view>
+        </view>
       </view>
     </block>
   </view>

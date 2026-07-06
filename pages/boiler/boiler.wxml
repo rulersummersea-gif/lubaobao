@@ -3,11 +3,11 @@
     <view class="card" data-item="{{item}}" bindtap="chooseBoiler">
       <view class="row">
         <view>
-          <view class="title" style="font-size:30rpx;">{{item.name}}</view>
-          <view class="sub">{{item.code}}｜{{item.location}}</view>
-          <view class="sub">蒸发量 {{item.evaporation}} ｜ 压力 {{item.pressure}}</view>
+          <view class="title">{{item.name}}</view>
+          <view class="sub">{{item.codeText}}｜{{item.locationText}}</view>
+          <view class="sub">{{item.specText}}</view>
         </view>
-        <view class="tag {{item.status === 'warning' ? 'tag-warn' : 'tag-normal'}}">{{item.status === 'warning' ? '预警' : '正常'}}</view>
+        <view class="tag {{item.statusClass}}">{{item.statusLabel}}</view>
       </view>
     </view>
   </block>

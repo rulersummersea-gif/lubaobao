@@ -3,7 +3,7 @@ const { getState } = require('../../store/app-state')
 const ui = require('../../utils/ui')
 
 Page({
-  data: { code: 'BW-202607-000128', pack: null, submitting: false },
+  data: { code: 'PACK-001', pack: null, submitting: false },
 
   onInput(e) { this.setData({ code: e.detail.value }) },
 

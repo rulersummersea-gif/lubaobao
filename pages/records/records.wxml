@@ -7,7 +7,7 @@
           <view class="sub">{{item.time}}</view>
           <view class="sub">{{item.summary}}</view>
         </view>
-        <view class="tag {{item.riskLevel === 'warning' ? 'tag-warn' : 'tag-normal'}}">{{item.riskLevel === 'warning' ? '预警' : '正常'}}</view>
+        <view class="tag {{item.riskClass}}">{{item.riskLabel}}</view>
       </view>
     </view>
   </block>

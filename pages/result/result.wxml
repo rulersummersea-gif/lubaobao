@@ -2,20 +2,21 @@
   <view class="card">
     <view class="row">
       <view class="title">巡检结果</view>
-      <view class="tag tag-warn">{{result.riskLevel === 'warning' ? '预警' : '正常'}}</view>
+      <view class="tag {{result.riskClass}}">{{result.riskLabel}}</view>
     </view>
+    <view wx:if="{{result.summary}}" class="sub" style="margin-top:12rpx;">{{result.summary}}</view>
   </view>
   <view class="card">
     <view class="section-title">检测值</view>
-    <block wx:for="{{result.items}}" wx:key="itemName">
+    <block wx:for="{{result.items}}" wx:key="name">
       <view class="list-item row">
         <view>
-          <view>{{item.itemName}}</view>
-          <view class="sub">正常范围：{{item.normalRange}}</view>
+          <view>{{item.name}}</view>
+          <view wx:if="{{item.normalRange}}" class="sub">正常范围：{{item.normalRange}}</view>
         </view>
         <view style="text-align:right;">
           <view>{{item.value}}</view>
-          <view class="sub">{{item.abnormal ? '异常' : '正常'}}</view>
+          <view class="sub">{{item.statusText}}</view>
         </view>
       </view>
     </block>
@@ -25,10 +26,10 @@
     <block wx:for="{{result.diagnosis}}" wx:key="title">
       <view class="list-item">
         <view>{{item.title}}</view>
-        <view class="sub">原因：{{item.reason}}</view>
-        <view class="sub">建议：{{item.advice}}</view>
+        <view wx:if="{{item.reason}}" class="sub">原因：{{item.reason}}</view>
+        <view wx:if="{{item.advice}}" class="sub">建议：{{item.advice}}</view>
       </view>
     </block>
   </view>
-  <view class="btn-primary" bindtap="submitRecord">确认提交</view>
+  <view class="btn-primary" bindtap="submitRecord">查看巡检记录</view>
 </view>

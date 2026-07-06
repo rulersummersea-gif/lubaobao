@@ -11,11 +11,23 @@ Page({
     try {
       ui.showLoading('加载锅炉')
       const boilers = await request({ url: '/boilers' })
-      this.setData({ boilers: boilers || [] })
+      this.setData({ boilers: (boilers || []).map(this.normalizeBoiler) })
     } catch (e) {
       ui.error('锅炉加载失败')
     } finally {
       ui.hideLoading()
+    }
+  },
+
+  normalizeBoiler(item) {
+    return {
+      ...item,
+      name: item.name || item.model || `锅炉 #${item.id}`,
+      codeText: item.code || item.deviceCode || `ID：${item.id}`,
+      locationText: item.location || `企业ID：${item.enterpriseId || '-'}`,
+      specText: item.evaporation || item.pressure ? `蒸发量 ${item.evaporation || '-'} ｜ 压力 ${item.pressure || '-'}` : '已接入联调服务器',
+      statusLabel: item.status === 'warning' ? '预警' : '正常',
+      statusClass: item.status === 'warning' ? 'tag-warn' : 'tag-normal'
     }
   },
 

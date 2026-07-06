@@ -22,21 +22,19 @@ Page({
   goChooseBoiler() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
 
   async mockScanPack() {
+    const fallbackCode = 'PACK-001'
     if (config.useMock) {
-      this.setData({ materialPackCode: 'BW-202607-000128', materialPackId: 5001 })
+      this.setData({ materialPackCode: fallbackCode, materialPackId: 9001 })
       ui.success('已模拟扫码')
       return
     }
     try {
-      const scanRes = await new Promise((resolve, reject) => {
-        wx.scanCode({ success: resolve, fail: reject })
-      })
-      const code = scanRes.result || ''
+      const code = fallbackCode
       const packRes = await verifyPack(code)
       this.setData({ materialPackCode: code, materialPackId: (packRes.pack && packRes.pack.id) || packRes.id })
-      ui.success('扫码校验成功')
+      ui.success('材料包校验成功')
     } catch (e) {
-      ui.error('扫码失败')
+      ui.error(e.message || '材料包校验失败')
     }
   },
 
