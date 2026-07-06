@@ -4,24 +4,24 @@ const ENV = {
   dev: {
     name: 'dev',
     useMock: true,
-    baseURL: 'https://api.example.com',
+    baseURL: 'http://49.232.174.76:18080',
     timeout: 15000
   },
   staging: {
     name: 'staging',
     useMock: false,
-    baseURL: 'https://staging-api.example.com',
+    baseURL: 'http://49.232.174.76:18080',
     timeout: 15000
   },
   prod: {
     name: 'prod',
     useMock: false,
-    baseURL: 'https://api.example.com',
+    baseURL: 'http://49.232.174.76:18080',
     timeout: 15000
   }
 }
 
-const DEFAULT_ENV_KEY = 'dev'
+const DEFAULT_ENV_KEY = 'staging'
 
 function getEnvKey() {
   try {
