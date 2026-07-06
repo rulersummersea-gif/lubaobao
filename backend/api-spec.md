@@ -1,7 +1,7 @@
 # 炉保保后端接口联调文档（V1）
 
 ## 通用规范
-- Base URL: `/api/v1`
+- Base URL: `http://49.232.174.76:18080`
 - 认证：`Authorization: Bearer <token>`
 - 返回：
 ```json
@@ -53,38 +53,34 @@
 ```
 
 ## 3. 检测包
-### POST `/packs`
-### POST `/packs/activate`
+### POST `/material-packs/verify`
 ```json
-{ "packId": 5001 }
+{ "code": "BW-202607-000128" }
 ```
-### POST `/packs/bind`
+### POST `/material-packs/activate`
 ```json
-{ "enterpriseId": 1, "boilerId": 1001, "packId": 5001, "bindRule": "shared" }
+{ "code": "BW-202607-000128", "enterpriseId": 1, "boilerId": 1001 }
 ```
-### GET `/packs?enterpriseId=1`
 
 ## 4. 巡检
 ### POST `/inspections`
 ```json
-{ "enterpriseId": 1, "boilerId": 1001, "packId": 5001, "inspectionType": "daily" }
+{ "boilerId": 1001, "materialPackId": 5001, "inspectionType": "daily" }
 ```
-### POST `/inspections/:id/upload`
-- form-data: `file`
 
-### POST `/inspections/:id/recognize`
-### GET `/inspections/:id/result`
+### POST `/inspections/create`
+同 `/inspections`，作为当前灰测兼容别名。
 
-### POST `/inspections/:id/submit`
+### POST `/inspections/recognize`
 ```json
-{ "remark": "补加药剂后复测" }
+{ "inspectionId": 9001 }
 ```
+
+### GET `/inspections/result?inspectionId=9001`
 
 ## 5. 记录与报告
-### GET `/records?enterpriseId=1&boilerId=1001&page=1&pageSize=20`
-### GET `/records/:id`
+### GET `/inspections`
 ### GET `/reports/monthly?enterpriseId=1&month=2026-07`
-### GET `/reports/monthly/boiler?boilerId=1001&month=2026-07`
 
 ---
 

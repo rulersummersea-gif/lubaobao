@@ -31,6 +31,7 @@ Page({
     try {
       ui.showLoading('激活中')
       await activateMaterialPack({
+        code: this.data.code,
         packId: this.data.pack.id,
         boilerId: currentBoiler.id,
         enterpriseId: state.enterprise && state.enterprise.id

@@ -1,13 +1,12 @@
-const config = require('../config/index')
 const { request } = require('./index')
 
 function verifyMaterialPack(code) {
-  const url = config.useMock ? '/material-packs/verify' : '/packs/verify'
+  const url = '/material-packs/verify'
   return request({ url, method: 'POST', data: { code } })
 }
 
 function activateMaterialPack(data) {
-  const url = config.useMock ? '/material-packs/activate' : '/packs/activate'
+  const url = '/material-packs/activate'
   return request({ url, method: 'POST', data })
 }
 

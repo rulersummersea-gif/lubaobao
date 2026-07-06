@@ -11,15 +11,12 @@ function uploadImage(filePath, inspectionId) {
 }
 
 function recognizeInspection(data) {
-  const url = config.useMock ? '/inspections/recognize' : `/inspections/${data.inspectionId}/recognize`
+  const url = '/inspections/recognize'
   return request({ url, method: 'POST', data })
 }
 
 function getInspectionResult(inspectionId) {
-  const url = config.useMock ? '/inspections/result' : `/inspections/${inspectionId}/result`
-  const method = 'GET'
-  const data = config.useMock ? { inspectionId } : {}
-  return request({ url, method, data })
+  return request({ url: '/inspections/result', method: 'GET', data: { inspectionId } })
 }
 
 function submitInspection(data) {
@@ -28,7 +25,7 @@ function submitInspection(data) {
 }
 
 function getRecords(params = {}) {
-  const url = config.useMock ? '/records' : '/inspections/records'
+  const url = config.useMock ? '/records' : '/inspections'
   return request({ url, method: 'GET', data: params })
 }
 

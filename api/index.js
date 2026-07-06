@@ -3,7 +3,6 @@
 const config = require('../config/index')
 const mock = require('../services/mock-service')
 const { http } = require('../services/http')
-const { getToken } = require('../utils/auth')
 
 function request({ url, method = 'GET', data = {} }) {
   if (config.useMock) {
@@ -44,19 +43,8 @@ function uploadInspectionImage(filePath, inspectionId) {
   if (config.useMock) {
     return Promise.resolve({ success: true, imageUrl: filePath, inspectionId })
   }
-  return new Promise((resolve, reject) => {
-    wx.uploadFile({
-      url: config.baseURL + '/inspections/upload-image',
-      filePath,
-      name: 'file',
-      formData: { inspectionId },
-      header: { Authorization: getToken() ? `Bearer ${getToken()}` : '' },
-      success: (res) => {
-        try { resolve(JSON.parse(res.data || '{}')) } catch (e) { reject(e) }
-      },
-      fail: reject
-    })
-  })
+  // 当前灰测后端 0.4.0-rbac 暂未暴露图片上传接口，先保留本地图片路径并放行识别流程。
+  return Promise.resolve({ success: true, imageUrl: filePath, inspectionId, skippedUpload: true })
 }
 
 module.exports = { request, wxLogin, verifyPack, uploadInspectionImage }
