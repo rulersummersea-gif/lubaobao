@@ -42,6 +42,24 @@ docker build -t lubaobao-api .
 docker run -p 18080:18080 -v /tmp/lubaobao-data:/data lubaobao-api
 ```
 
+## 云服务器部署
+
+登录服务器后执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rulersummersea-gif/lubaobao/main/backend/deploy_server.sh -o /tmp/deploy_lubaobao.sh
+chmod +x /tmp/deploy_lubaobao.sh
+/tmp/deploy_lubaobao.sh
+```
+
+部署完成后验证：
+
+```bash
+curl http://127.0.0.1:18080/health
+curl http://127.0.0.1:18080/
+curl http://127.0.0.1:18080/material-packs?enterpriseId=1
+```
+
 ## 默认测试数据
 
 ```text
