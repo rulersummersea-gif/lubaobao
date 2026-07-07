@@ -21,27 +21,47 @@ Page({
 
   goChooseBoiler() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
 
-  async mockScanPack() {
-    const fallbackCode = 'PACK-001'
+  async setPackByCode(code, successText = '材料包校验成功') {
+    const packRes = await verifyPack(code)
+    this.setData({ materialPackCode: code, materialPackId: (packRes.pack && packRes.pack.id) || packRes.id })
+    ui.success(successText)
+  },
+
+  async useTestPack() {
+    const testCode = 'PACK-001'
     if (config.useMock) {
-      this.setData({ materialPackCode: fallbackCode, materialPackId: 9001 })
-      ui.success('已模拟扫码')
+      this.setData({ materialPackCode: testCode, materialPackId: 9001 })
+      ui.success('已使用测试包')
       return
     }
     try {
-      const code = fallbackCode
-      const packRes = await verifyPack(code)
-      this.setData({ materialPackCode: code, materialPackId: (packRes.pack && packRes.pack.id) || packRes.id })
-      ui.success('材料包校验成功')
+      await this.setPackByCode(testCode, '测试包校验成功')
     } catch (e) {
       ui.error(e.message || '材料包校验失败')
     }
   },
 
-  async mockTakePhoto() {
+  async scanPack() {
+    if (config.useMock) {
+      this.useTestPack()
+      return
+    }
+    try {
+      const scanRes = await new Promise((resolve, reject) => {
+        wx.scanCode({ success: resolve, fail: reject })
+      })
+      const code = scanRes.result || ''
+      if (!code) return ui.error('未识别到材料包编码')
+      await this.setPackByCode(code, '扫码校验成功')
+    } catch (e) {
+      ui.error(e.message || '扫码失败')
+    }
+  },
+
+  async chooseInspectionImage() {
     if (config.useMock) {
       this.setData({ previewImage: '/images/mock-board.png' })
-      ui.success('已模拟拍照')
+      ui.success('已选择图片')
       return
     }
     try {

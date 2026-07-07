@@ -54,10 +54,6 @@ function uploadInspectionImage(filePath, inspectionId) {
       success: (res) => {
         try {
           const payload = JSON.parse(res.data || '{}')
-          if (res.statusCode === 404) {
-            resolve({ success: true, imageUrl: filePath, inspectionId, skippedUpload: true })
-            return
-          }
           if (res.statusCode < 200 || res.statusCode >= 300) {
             reject(new Error(payload.detail || payload.message || '图片上传失败'))
             return
