@@ -20,7 +20,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 18080 --reload
 ```
 
-默认使用 SQLite：
+本地直接运行默认使用 SQLite：
 
 ```text
 /tmp/lubaobao.sqlite3
@@ -38,9 +38,25 @@ export LUBAOBAO_UPLOAD_DIR=/data/uploads
 
 ```bash
 cd backend
-docker build -t lubaobao-api .
-docker run -p 18080:18080 -v /tmp/lubaobao-data:/data lubaobao-api
+docker compose up -d --build
 ```
+
+Docker Compose 会同时启动：
+
+```text
+lubaobao-api
+lubaobao-mysql
+```
+
+MySQL 只在 Docker 内部网络开放，不暴露公网端口。默认联调库：
+
+```text
+MYSQL_DATABASE=lubaobao_dev
+MYSQL_USER=lubaobao
+MYSQL_PASSWORD=lubaobao_dev_password
+```
+
+如果只想用 SQLite 跑 API，可以不用 compose，直接执行本地启动命令。
 
 ## 云服务器部署
 

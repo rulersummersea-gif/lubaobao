@@ -14,6 +14,12 @@ from pydantic import BaseModel
 
 DB_PATH = Path(os.getenv("LUBAOBAO_DB", "/tmp/lubaobao.sqlite3"))
 UPLOAD_DIR = Path(os.getenv("LUBAOBAO_UPLOAD_DIR", "/tmp/lubaobao_uploads"))
+DB_DRIVER = os.getenv("DB_DRIVER", "sqlite").lower()
+MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER = os.getenv("MYSQL_USER", "lubaobao")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "lubaobao")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "lubaobao")
 
 app = FastAPI(title="Lubaobao API", version="0.5.0-complete-flow")
 app.add_middleware(
@@ -28,7 +34,68 @@ def now() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def db() -> sqlite3.Connection:
+class MySQLCursor:
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    @property
+    def lastrowid(self):
+        return self.cursor.lastrowid
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    def __iter__(self):
+        return iter(self.cursor.fetchall())
+
+
+class MySQLConnection:
+    def __init__(self, database: Optional[str] = None):
+        import pymysql
+
+        self.conn = pymysql.connect(
+            host=MYSQL_HOST,
+            port=MYSQL_PORT,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            database=database,
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=False,
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type:
+            self.conn.rollback()
+        else:
+            self.conn.commit()
+        self.conn.close()
+
+    def execute(self, sql: str, params=()):
+        cursor = self.conn.cursor()
+        cursor.execute(sql.replace("?", "%s"), params)
+        return MySQLCursor(cursor)
+
+    def executescript(self, script: str):
+        for statement in script.split(";"):
+            statement = statement.strip()
+            if statement:
+                self.execute(statement)
+
+
+def db():
+    if DB_DRIVER == "mysql":
+        return MySQLConnection(MYSQL_DATABASE)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -37,6 +104,10 @@ def db() -> sqlite3.Connection:
 
 def row_to_dict(row):
     return dict(row) if row else None
+
+
+def is_integrity_error(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.IntegrityError) or exc.__class__.__name__ == "IntegrityError"
 
 
 def make_token(payload: dict) -> str:
@@ -55,8 +126,50 @@ def parse_token(authorization: Optional[str]) -> dict:
         return {}
 
 
-def init_db() -> None:
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+def seed_data(conn) -> None:
+    conn.execute(
+        "INSERT IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)"
+        if DB_DRIVER == "mysql"
+        else "INSERT OR IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)",
+        (now(),),
+    )
+    conn.execute(
+        """
+        INSERT IGNORE INTO boilers(
+          id, enterprise_id, name, device_code, product_no, model, device_type,
+          rated_capacity, rated_pressure, fuel_type, manufacturer, manufacture_date,
+          license_no, created_at
+        ) VALUES(1001, 1, '1号蒸汽锅炉', 'D-1001', 'P-1001', 'DZL6-1.25', '蒸汽锅炉',
+          '6t/h', '1.25', '生物质颗粒', '青岛胜利锅炉有限公司', '2025-08-01',
+          'TS2110709-2027', ?)
+        """
+        if DB_DRIVER == "mysql"
+        else """
+        INSERT OR IGNORE INTO boilers(
+          id, enterprise_id, name, device_code, product_no, model, device_type,
+          rated_capacity, rated_pressure, fuel_type, manufacturer, manufacture_date,
+          license_no, created_at
+        ) VALUES(1001, 1, '1号蒸汽锅炉', 'D-1001', 'P-1001', 'DZL6-1.25', '蒸汽锅炉',
+          '6t/h', '1.25', '生物质颗粒', '青岛胜利锅炉有限公司', '2025-08-01',
+          'TS2110709-2027', ?)
+        """,
+        (now(),),
+    )
+    conn.execute(
+        """
+        INSERT IGNORE INTO material_packs(id, enterprise_id, code, type, status, boiler_id, expire_at, created_at, activated_at)
+        VALUES(9001, 1, 'PACK-001', '基础版', 'activated', 1001, '2027-12-31', ?, ?)
+        """
+        if DB_DRIVER == "mysql"
+        else """
+        INSERT OR IGNORE INTO material_packs(id, enterprise_id, code, type, status, boiler_id, expire_at, created_at, activated_at)
+        VALUES(9001, 1, 'PACK-001', '基础版', 'activated', 1001, '2027-12-31', ?, ?)
+        """,
+        (now(), now()),
+    )
+
+
+def init_sqlite() -> None:
     with db() as conn:
         conn.executescript(
             """
@@ -114,29 +227,83 @@ def init_db() -> None:
             );
             """
         )
-        conn.execute(
-            "INSERT OR IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)",
-            (now(),),
-        )
-        conn.execute(
+        seed_data(conn)
+
+
+def init_mysql() -> None:
+    with MySQLConnection(None) as conn:
+        conn.execute(f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DATABASE}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    with db() as conn:
+        conn.executescript(
             """
-            INSERT OR IGNORE INTO boilers(
-              id, enterprise_id, name, device_code, product_no, model, device_type,
-              rated_capacity, rated_pressure, fuel_type, manufacturer, manufacture_date,
-              license_no, created_at
-            ) VALUES(1001, 1, '1号蒸汽锅炉', 'D-1001', 'P-1001', 'DZL6-1.25', '蒸汽锅炉',
-              '6t/h', '1.25', '生物质颗粒', '青岛胜利锅炉有限公司', '2025-08-01',
-              'TS2110709-2027', ?)
-            """,
-            (now(),),
-        )
-        conn.execute(
+            CREATE TABLE IF NOT EXISTS enterprises (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              name VARCHAR(128) NOT NULL,
+              code VARCHAR(64) NULL UNIQUE,
+              status VARCHAR(20) NOT NULL DEFAULT 'active',
+              created_at DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS boilers (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              enterprise_id BIGINT NOT NULL,
+              name VARCHAR(128) NOT NULL,
+              device_code VARCHAR(64) NULL,
+              product_no VARCHAR(64) NULL,
+              model VARCHAR(64) NULL,
+              device_type VARCHAR(32) NULL,
+              rated_capacity VARCHAR(64) NULL,
+              rated_pressure VARCHAR(64) NULL,
+              rated_steam_temp VARCHAR(64) NULL,
+              fuel_type VARCHAR(64) NULL,
+              thermal_efficiency VARCHAR(64) NULL,
+              manufacturer VARCHAR(128) NULL,
+              manufacture_date VARCHAR(32) NULL,
+              license_no VARCHAR(64) NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'normal',
+              created_at DATETIME NOT NULL,
+              KEY idx_boilers_enterprise (enterprise_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS material_packs (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              enterprise_id BIGINT NOT NULL,
+              code VARCHAR(64) NOT NULL UNIQUE,
+              type VARCHAR(32) NOT NULL DEFAULT '基础版',
+              status VARCHAR(20) NOT NULL DEFAULT 'unactivated',
+              boiler_id BIGINT NULL,
+              expire_at VARCHAR(32) NULL,
+              created_at DATETIME NOT NULL,
+              activated_at DATETIME NULL,
+              KEY idx_packs_enterprise (enterprise_id),
+              KEY idx_packs_boiler (boiler_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS inspections (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              enterprise_id BIGINT NOT NULL,
+              boiler_id BIGINT NOT NULL,
+              material_pack_id BIGINT NOT NULL,
+              inspection_type VARCHAR(32) NOT NULL DEFAULT 'daily',
+              image_url VARCHAR(512) NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'created',
+              score INT NULL,
+              summary VARCHAR(255) NULL,
+              result_json JSON NULL,
+              remark VARCHAR(255) NULL,
+              created_at DATETIME NOT NULL,
+              submitted_at DATETIME NULL,
+              KEY idx_inspections_enterprise (enterprise_id),
+              KEY idx_inspections_boiler (boiler_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
-            INSERT OR IGNORE INTO material_packs(id, enterprise_id, code, type, status, boiler_id, expire_at, created_at, activated_at)
-            VALUES(9001, 1, 'PACK-001', '基础版', 'activated', 1001, '2027-12-31', ?, ?)
-            """,
-            (now(), now()),
         )
+        seed_data(conn)
+
+
+def init_db() -> None:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    if DB_DRIVER == "mysql":
+        init_mysql()
+    else:
+        init_sqlite()
 
 
 @app.on_event("startup")
@@ -322,7 +489,9 @@ def create_pack(req: PackCreateReq):
                 """,
                 (req.enterpriseId, req.code, req.type, req.expireAt, now()),
             )
-        except sqlite3.IntegrityError:
+        except Exception as exc:
+            if not is_integrity_error(exc):
+                raise
             raise HTTPException(status_code=409, detail="检测包编码已存在")
         return {"id": cur.lastrowid, "code": req.code, "enterpriseId": req.enterpriseId, "status": "unactivated"}
 

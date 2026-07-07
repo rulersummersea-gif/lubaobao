@@ -5,11 +5,40 @@ services:
     ports:
       - "18080:18080"
     environment:
+      DB_DRIVER: mysql
+      MYSQL_HOST: lubaobao-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: lubaobao
+      MYSQL_PASSWORD: lubaobao_dev_password
+      MYSQL_DATABASE: lubaobao_dev
       LUBAOBAO_DB: /data/lubaobao.sqlite3
       LUBAOBAO_UPLOAD_DIR: /data/uploads
     volumes:
-      - lubaobao-data:/data
+      - lubaobao-uploads:/data/uploads
+    depends_on:
+      lubaobao-mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lubaobao-mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: lubaobao_root_password
+      MYSQL_DATABASE: lubaobao_dev
+      MYSQL_USER: lubaobao
+      MYSQL_PASSWORD: lubaobao_dev_password
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - lubaobao-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ulubaobao", "-plubaobao_dev_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
 
 volumes:
-  lubaobao-data:
+  lubaobao-uploads:
+  lubaobao-mysql-data:

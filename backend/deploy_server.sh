@@ -40,6 +40,10 @@ sudo chown -R "$USER:$USER" /opt/lubaobao-data
 echo "[4/6] Starting backend..."
 cd "$APP_DIR/backend"
 docker compose down || true
+if docker ps -a --format '{{.Names}}' | grep -qx 'lubaobao-api'; then
+  docker stop lubaobao-api || true
+  docker rm lubaobao-api || true
+fi
 docker compose up -d --build
 
 echo "[5/6] Waiting for API..."
