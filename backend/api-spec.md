@@ -71,6 +71,16 @@
 { "code": "PACK-001", "enterpriseId": 1, "boilerId": 1001 }
 ```
 
+### POST `/material-packs/unbind`
+```json
+{ "code": "PACK-001" }
+```
+
+### POST `/material-packs/invalidate`
+```json
+{ "code": "PACK-001" }
+```
+
 ## 4. 巡检
 ### POST `/inspections`
 ```json
@@ -103,9 +113,17 @@
 
 ## 5. 记录与报告
 ### GET `/inspections`
+支持筛选：
+```text
+/inspections?status=submitted&boilerId=1001
+```
 ### GET `/records/:id`
 ### GET `/record-detail?id=9001`
 ### GET `/reports/monthly?enterpriseId=1&month=2026-07`
+
+## 6. 用户权限
+### GET `/users`
+返回当前灰测内置账号列表。
 
 ---
 

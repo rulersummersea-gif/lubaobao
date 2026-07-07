@@ -353,6 +353,10 @@ class PackActivateReq(BaseModel):
     enterpriseId: Optional[int] = 1
 
 
+class PackCodeReq(BaseModel):
+    code: str
+
+
 class InspectionCreateReq(BaseModel):
     boilerId: int
     materialPackId: int
@@ -411,6 +415,15 @@ def auth_me(authorization: Optional[str] = Header(None)):
     if not user:
         raise HTTPException(status_code=401, detail="未登录")
     return {"user": user}
+
+
+@app.get("/users")
+def users():
+    return [
+        {"id": 7477, "username": "admin", "name": "平台管理员", "role": "platform_admin", "enterpriseId": 1},
+        {"id": 7478, "username": "entadmin", "name": "企业管理员", "role": "enterprise_admin", "enterpriseId": 1},
+        {"id": 7479, "username": "inspector", "name": "巡检员", "role": "inspector", "enterpriseId": 1},
+    ]
 
 
 @app.get("/enterprises")
@@ -535,6 +548,27 @@ def activate_pack(req: PackActivateReq):
     return {"id": updated["id"], "code": updated["code"], "enterpriseId": updated["enterprise_id"], "status": updated["status"]}
 
 
+@app.post("/material-packs/invalidate")
+def invalidate_pack(req: PackCodeReq):
+    with db() as conn:
+        cur = conn.execute("UPDATE material_packs SET status = 'invalid' WHERE code = ?", (req.code,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="检测包不存在")
+    return {"code": req.code, "status": "invalid"}
+
+
+@app.post("/material-packs/unbind")
+def unbind_pack(req: PackCodeReq):
+    with db() as conn:
+        cur = conn.execute(
+            "UPDATE material_packs SET boiler_id = NULL, status = 'activated' WHERE code = ?",
+            (req.code,),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="检测包不存在")
+    return {"code": req.code, "status": "activated", "boilerId": None}
+
+
 def inspection_result_payload(inspection_id: int) -> dict:
     items = [
         {"name": "pH", "value": "8.1", "status": "warning", "normalRange": "8.5-10.5"},
@@ -632,8 +666,13 @@ def get_result(inspectionId: int):
     if not row:
         raise HTTPException(status_code=404, detail="inspection not found")
     if row["result_json"]:
-        return json.loads(row["result_json"])
-    return {"inspectionId": inspectionId, "status": row["status"], "items": [], "diagnosis": []}
+        payload = json.loads(row["result_json"])
+    else:
+        payload = {"inspectionId": inspectionId, "status": row["status"], "items": [], "diagnosis": []}
+    payload["imageUrl"] = row["image_url"]
+    payload["remark"] = row["remark"]
+    payload["submittedAt"] = row["submitted_at"]
+    return payload
 
 
 @app.post("/inspections/submit")
@@ -649,17 +688,28 @@ def submit_inspection(req: SubmitReq):
 
 
 @app.get("/inspections")
-def list_inspections():
+def list_inspections(status: Optional[str] = None, boilerId: Optional[int] = None):
     with db() as conn:
+        filters = []
+        params = []
+        if status:
+            filters.append("i.status = ?")
+            params.append(status)
+        if boilerId:
+            filters.append("i.boiler_id = ?")
+            params.append(boilerId)
+        where_clause = ("WHERE " + " AND ".join(filters)) if filters else ""
         rows = conn.execute(
-            """
+            f"""
             SELECT i.id AS inspectionId, i.boiler_id AS boilerId, b.name AS boilerName,
                    i.material_pack_id AS materialPackId, i.status, i.score, i.summary,
-                   i.result_json AS resultJson, i.created_at AS createdAt
+                   i.image_url AS imageUrl, i.result_json AS resultJson, i.created_at AS createdAt
             FROM inspections i
             LEFT JOIN boilers b ON b.id = i.boiler_id
+            {where_clause}
             ORDER BY i.id DESC
-            """
+            """,
+            tuple(params),
         )
         result = []
         for row in rows:

@@ -52,6 +52,7 @@
       <button data-tab="packs">材料包管理</button>
       <button data-tab="boilers">锅炉管理</button>
       <button data-tab="inspections">巡检记录</button>
+      <button data-tab="users">用户权限</button>
       <button data-tab="reports">月报中心</button>
       <button data-tab="debug">接口输出</button>
     </div>
@@ -120,13 +121,31 @@
       <div class="card">
         <div class="row">
           <h2 style="margin-right:auto">巡检记录</h2>
+          <select id="inspectionStatus">
+            <option value="">全部状态</option>
+            <option value="created">created</option>
+            <option value="uploaded">uploaded</option>
+            <option value="done">done</option>
+            <option value="submitted">submitted</option>
+          </select>
+          <input id="inspectionBoiler" placeholder="锅炉ID">
           <button class="secondary" id="loadInspectionsBtn">刷新记录</button>
         </div>
-        <table><thead><tr><th>ID</th><th>锅炉</th><th>材料包</th><th>状态</th><th>评分</th><th>摘要</th><th>操作</th></tr></thead><tbody id="inspectionsBody"></tbody></table>
+        <table><thead><tr><th>ID</th><th>锅炉</th><th>材料包</th><th>状态</th><th>评分</th><th>摘要</th><th>图片</th><th>操作</th></tr></thead><tbody id="inspectionsBody"></tbody></table>
       </div>
       <div class="card">
         <h2>记录详情</h2>
         <pre id="inspectionDetail">{}</pre>
+      </div>
+    </section>
+
+    <section id="users" class="tab">
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">用户权限</h2>
+          <button class="secondary" id="loadUsersBtn">刷新用户</button>
+        </div>
+        <table><thead><tr><th>ID</th><th>账号</th><th>姓名</th><th>角色</th><th>企业</th></tr></thead><tbody id="usersBody"></tbody></table>
       </div>
     </section>
 
@@ -201,7 +220,11 @@ async function loadPacks() {
   $('packsBody').innerHTML = packs.map((p) => `
     <tr>
       <td>${p.id}</td><td>${p.code}</td><td>${tag(p.status)}</td><td>${p.boilerId || '-'}</td><td>${p.expireAt || '-'}</td>
-      <td><button class="secondary" onclick="activatePack('${p.code}')">绑定1001</button></td>
+      <td>
+        <button class="secondary" onclick="activatePack('${p.code}')">绑定1001</button>
+        <button class="secondary" onclick="unbindPack('${p.code}')">解绑</button>
+        <button class="warn" onclick="invalidatePack('${p.code}')">作废</button>
+      </td>
     </tr>`).join('');
 }
 async function createPack() {
@@ -210,6 +233,15 @@ async function createPack() {
 }
 async function activatePack(code) {
   await api('/material-packs/activate', { method: 'POST', body: JSON.stringify({ code, enterpriseId: 1, boilerId: 1001 }) });
+  await loadPacks();
+}
+async function unbindPack(code) {
+  await api('/material-packs/unbind', { method: 'POST', body: JSON.stringify({ code }) });
+  await loadPacks();
+}
+async function invalidatePack(code) {
+  if (!confirm(`确认作废材料包 ${code}？`)) return;
+  await api('/material-packs/invalidate', { method: 'POST', body: JSON.stringify({ code }) });
   await loadPacks();
 }
 async function loadBoilers() {
@@ -221,10 +253,14 @@ async function createBoiler() {
   await loadBoilers();
 }
 async function loadInspections() {
-  const list = await api('/inspections');
+  const params = new URLSearchParams();
+  if ($('inspectionStatus').value) params.set('status', $('inspectionStatus').value);
+  if ($('inspectionBoiler').value) params.set('boilerId', $('inspectionBoiler').value);
+  const list = await api('/inspections' + (params.toString() ? '?' + params.toString() : ''));
   $('inspectionsBody').innerHTML = list.map((i) => `
     <tr>
       <td>${i.inspectionId}</td><td>${i.boilerName || i.boilerId}</td><td>${i.materialPackId}</td><td>${tag(i.status)}</td><td>${i.score || '-'}</td><td>${i.summary || '-'}</td>
+      <td>${i.imageUrl ? `<a href="${base()}${i.imageUrl}" target="_blank">查看</a>` : '-'}</td>
       <td><button class="secondary" onclick="loadInspectionDetail(${i.inspectionId})">详情</button></td>
     </tr>`).join('');
 }
@@ -232,13 +268,17 @@ async function loadInspectionDetail(id) {
   const detail = await api('/records/' + id);
   $('inspectionDetail').textContent = JSON.stringify(detail, null, 2);
 }
+async function loadUsers() {
+  const users = await api('/users');
+  $('usersBody').innerHTML = users.map((u) => `<tr><td>${u.id}</td><td>${u.username}</td><td>${u.name}</td><td>${tag(u.role)}</td><td>${u.enterpriseId || '-'}</td></tr>`).join('');
+}
 async function loadReport() {
   const data = await api(`/reports/monthly?enterpriseId=${$('reportEnterprise').value || 1}&month=${encodeURIComponent($('reportMonth').value || '2026-07')}`);
   $('reportOut').textContent = JSON.stringify(data, null, 2);
 }
 async function refreshAll() {
   await loadDashboard();
-  await Promise.all([loadPacks(), loadBoilers(), loadInspections(), loadReport()]);
+  await Promise.all([loadPacks(), loadBoilers(), loadInspections(), loadUsers(), loadReport()]);
 }
 
 document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
@@ -249,6 +289,7 @@ $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
 $('createBoilerBtn').onclick = () => createBoiler().catch(showDebug);
 $('loadBoilersBtn').onclick = () => loadBoilers().catch(showDebug);
 $('loadInspectionsBtn').onclick = () => loadInspections().catch(showDebug);
+$('loadUsersBtn').onclick = () => loadUsers().catch(showDebug);
 $('loadReportBtn').onclick = () => loadReport().catch(showDebug);
 setWho();
 refreshAll().catch(showDebug);
