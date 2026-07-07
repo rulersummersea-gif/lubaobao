@@ -58,6 +58,14 @@ MYSQL_PASSWORD=lubaobao_dev_password
 
 如果只想用 SQLite 跑 API，可以不用 compose，直接执行本地启动命令。
 
+上线前安全要求：
+
+```text
+不要把 MySQL 3306/13306 暴露到公网。
+API 通过 Docker 内部网络访问 lubaobao-mysql。
+旧的公网 MySQL 容器如仍存在，应保持停止状态或备份后删除。
+```
+
 ## 云服务器部署
 
 登录服务器后执行：
