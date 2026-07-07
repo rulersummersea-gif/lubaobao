@@ -3,6 +3,7 @@
 const config = require('../config/index')
 const mock = require('../services/mock-service')
 const { http } = require('../services/http')
+const { getToken } = require('../utils/auth')
 
 function request({ url, method = 'GET', data = {} }) {
   if (config.useMock) {
@@ -38,13 +39,35 @@ function verifyPack(code) {
   return request({ url: '/material-packs/verify', method: 'POST', data: { code } })
 }
 
-// 真实接口版：上传巡检图片（当前只预留接口）
+// 真实接口版：上传巡检图片
 function uploadInspectionImage(filePath, inspectionId) {
   if (config.useMock) {
     return Promise.resolve({ success: true, imageUrl: filePath, inspectionId })
   }
-  // 当前灰测后端 0.4.0-rbac 暂未暴露图片上传接口，先保留本地图片路径并放行识别流程。
-  return Promise.resolve({ success: true, imageUrl: filePath, inspectionId, skippedUpload: true })
+  return new Promise((resolve, reject) => {
+    wx.uploadFile({
+      url: config.baseURL + '/inspections/upload-image',
+      filePath,
+      name: 'file',
+      formData: { inspectionId },
+      header: { Authorization: getToken() ? `Bearer ${getToken()}` : '' },
+      success: (res) => {
+        try {
+          const payload = JSON.parse(res.data || '{}')
+          if (res.statusCode === 404) {
+            resolve({ success: true, imageUrl: filePath, inspectionId, skippedUpload: true })
+            return
+          }
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(payload.detail || payload.message || '图片上传失败'))
+            return
+          }
+          resolve(payload)
+        } catch (e) { reject(e) }
+      },
+      fail: reject
+    })
+  })
 }
 
 module.exports = { request, wxLogin, verifyPack, uploadInspectionImage }

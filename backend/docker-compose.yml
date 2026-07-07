@@ -1,0 +1,15 @@
+services:
+  lubaobao-api:
+    build: .
+    container_name: lubaobao-api
+    ports:
+      - "18080:18080"
+    environment:
+      LUBAOBAO_DB: /data/lubaobao.sqlite3
+      LUBAOBAO_UPLOAD_DIR: /data/uploads
+    volumes:
+      - lubaobao-data:/data
+    restart: unless-stopped
+
+volumes:
+  lubaobao-data:

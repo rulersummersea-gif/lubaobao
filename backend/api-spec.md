@@ -53,13 +53,22 @@
 ```
 
 ## 3. 检测包
+### GET `/material-packs?enterpriseId=1`
+查询企业检测包列表。
+
+### POST `/material-packs`
+```json
+{ "code": "PACK-002", "enterpriseId": 1, "type": "基础版", "expireAt": "2027-12-31" }
+```
+
 ### POST `/material-packs/verify`
 ```json
-{ "code": "BW-202607-000128" }
+{ "code": "PACK-001" }
 ```
+
 ### POST `/material-packs/activate`
 ```json
-{ "code": "BW-202607-000128", "enterpriseId": 1, "boilerId": 1001 }
+{ "code": "PACK-001", "enterpriseId": 1, "boilerId": 1001 }
 ```
 
 ## 4. 巡检
@@ -71,6 +80,15 @@
 ### POST `/inspections/create`
 同 `/inspections`，作为当前灰测兼容别名。
 
+### POST `/inspections/upload-image`
+微信小程序上传图片接口：
+- `multipart/form-data`
+- `file`: 图片文件
+- `inspectionId`: 巡检ID
+
+### POST `/inspections/:id/upload`
+同上，REST 风格上传别名。
+
 ### POST `/inspections/recognize`
 ```json
 { "inspectionId": 9001 }
@@ -78,8 +96,15 @@
 
 ### GET `/inspections/result?inspectionId=9001`
 
+### POST `/inspections/submit`
+```json
+{ "inspectionId": 9001, "remark": "补加药剂后复测" }
+```
+
 ## 5. 记录与报告
 ### GET `/inspections`
+### GET `/records/:id`
+### GET `/record-detail?id=9001`
 ### GET `/reports/monthly?enterpriseId=1&month=2026-07`
 
 ---

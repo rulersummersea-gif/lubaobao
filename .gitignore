@@ -1,7 +1,8 @@
+__pycache__/
+*.py[cod]
 .DS_Store
-node_modules/
-miniprogram_npm/
+.venv/
+backend/.venv/
+backend/uploads/
+backend/*.sqlite3
 project.private.config.json
-.idea/
-.vscode/
-*.log
