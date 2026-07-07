@@ -46,6 +46,19 @@ if docker ps -a --format '{{.Names}}' | grep -qx 'lubaobao-api'; then
 fi
 docker compose up -d --build
 
+echo "[4.5/6] Starting admin web..."
+if docker ps -a --format '{{.Names}}' | grep -qx 'lubaobao-admin'; then
+  docker stop lubaobao-admin || true
+  docker rm lubaobao-admin || true
+fi
+docker run -d \
+  --name lubaobao-admin \
+  --network host \
+  --restart unless-stopped \
+  -v "$APP_DIR/admin-web/index.html:/usr/share/nginx/html/index.html:ro" \
+  -v "$APP_DIR/admin-web/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+  nginx:alpine
+
 echo "[5/6] Waiting for API..."
 for i in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:18080/health >/dev/null; then

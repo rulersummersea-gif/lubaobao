@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>炉保保后台</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, "PingFang SC", sans-serif; background: #f5f7fb; color: #0f172a; }
+    .wrap { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+    .side { background: #0f172a; color: #cbd5e1; padding: 18px 14px; }
+    .side h1 { margin: 0 0 8px; color: #fff; font-size: 22px; }
+    .side .muted { color: #94a3b8; font-size: 13px; margin-bottom: 18px; }
+    .nav button { width: 100%; min-height: 44px; margin: 5px 0; border: 0; border-radius: 8px; background: #1e293b; color: #e2e8f0; text-align: left; padding: 0 12px; cursor: pointer; font-size: 15px; }
+    .nav button.active { background: #2563eb; color: #fff; }
+    .main { padding: 20px; }
+    .topbar, .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .topbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .title { font-size: 22px; font-weight: 800; margin: 0; }
+    .muted { color: #64748b; font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; }
+    .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
+    .kpi b { display: block; margin-top: 8px; font-size: 24px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    input, select { min-height: 40px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 14px; background: #fff; }
+    button { min-height: 40px; border: 0; border-radius: 8px; padding: 0 14px; background: #2563eb; color: #fff; cursor: pointer; font-size: 14px; }
+    button.secondary { background: #e2e8f0; color: #0f172a; }
+    button.warn { background: #f59e0b; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; background: #fff; }
+    th, td { border-bottom: 1px solid #e2e8f0; padding: 10px; text-align: left; vertical-align: top; }
+    th { color: #475569; font-size: 13px; background: #f8fafc; }
+    .tag { display: inline-block; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 700; background: #dbeafe; color: #1d4ed8; }
+    .tag.ok { background: #dcfce7; color: #166534; }
+    .tag.warn { background: #fef3c7; color: #92400e; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #0b1020; color: #dbeafe; padding: 12px; border-radius: 8px; max-height: 360px; overflow: auto; }
+    .tab { display: none; }
+    .tab.active { display: block; }
+    @media (max-width: 900px) {
+      .wrap { grid-template-columns: 1fr; }
+      .side { position: static; }
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="side">
+    <h1>炉保保后台</h1>
+    <div class="muted" id="who">未登录</div>
+    <div class="nav">
+      <button data-tab="dashboard" class="active">仪表盘</button>
+      <button data-tab="packs">材料包管理</button>
+      <button data-tab="boilers">锅炉管理</button>
+      <button data-tab="inspections">巡检记录</button>
+      <button data-tab="reports">月报中心</button>
+      <button data-tab="debug">接口输出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <p class="title">运营管理台</p>
+        <div class="muted">管理企业锅炉、材料包和巡检记录</div>
+      </div>
+      <div class="row">
+        <input id="base" value="/api" style="width:220px">
+        <input id="username" value="admin" placeholder="用户名">
+        <input id="password" value="Admin@123" type="password" placeholder="密码">
+        <button id="loginBtn">登录</button>
+        <button class="secondary" id="refreshBtn">刷新</button>
+      </div>
+    </div>
+
+    <section id="dashboard" class="tab active">
+      <div class="grid">
+        <div class="kpi"><span>API 状态</span><b id="apiState">-</b></div>
+        <div class="kpi"><span>锅炉数量</span><b id="boilerCount">-</b></div>
+        <div class="kpi"><span>材料包数量</span><b id="packCount">-</b></div>
+        <div class="kpi"><span>巡检记录</span><b id="inspectionCount">-</b></div>
+      </div>
+    </section>
+
+    <section id="packs" class="tab">
+      <div class="card">
+        <h2>材料包入库</h2>
+        <div class="row">
+          <input id="packCode" value="PACK-002" placeholder="材料包编码">
+          <input id="packType" value="基础版" placeholder="类型">
+          <input id="packExpire" value="2027-12-31" placeholder="有效期">
+          <button id="createPackBtn">入库</button>
+          <button class="secondary" id="loadPacksBtn">刷新列表</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>材料包列表</h2>
+        <table><thead><tr><th>ID</th><th>编码</th><th>状态</th><th>锅炉</th><th>有效期</th><th>操作</th></tr></thead><tbody id="packsBody"></tbody></table>
+      </div>
+    </section>
+
+    <section id="boilers" class="tab">
+      <div class="card">
+        <h2>新增锅炉</h2>
+        <div class="row">
+          <input id="bDevice" value="D-1002" placeholder="设备代码">
+          <input id="bProduct" value="P-1002" placeholder="产品编号">
+          <input id="bModel" value="DZL6-1.25" placeholder="型号">
+          <input id="bType" value="蒸汽锅炉" placeholder="设备类型">
+          <button id="createBoilerBtn">新增锅炉</button>
+          <button class="secondary" id="loadBoilersBtn">刷新列表</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>锅炉列表</h2>
+        <table><thead><tr><th>ID</th><th>名称</th><th>设备代码</th><th>型号</th><th>状态</th></tr></thead><tbody id="boilersBody"></tbody></table>
+      </div>
+    </section>
+
+    <section id="inspections" class="tab">
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">巡检记录</h2>
+          <button class="secondary" id="loadInspectionsBtn">刷新记录</button>
+        </div>
+        <table><thead><tr><th>ID</th><th>锅炉</th><th>材料包</th><th>状态</th><th>评分</th><th>摘要</th><th>操作</th></tr></thead><tbody id="inspectionsBody"></tbody></table>
+      </div>
+      <div class="card">
+        <h2>记录详情</h2>
+        <pre id="inspectionDetail">{}</pre>
+      </div>
+    </section>
+
+    <section id="reports" class="tab">
+      <div class="card">
+        <h2>月报查询</h2>
+        <div class="row">
+          <input id="reportEnterprise" value="1" placeholder="企业ID">
+          <input id="reportMonth" value="2026-07" placeholder="月份">
+          <button id="loadReportBtn">查询月报</button>
+        </div>
+        <pre id="reportOut">{}</pre>
+      </div>
+    </section>
+
+    <section id="debug" class="tab">
+      <div class="card">
+        <h2>接口输出</h2>
+        <pre id="debugOut">{}</pre>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { token: localStorage.getItem('LB_ADMIN_TOKEN') || '', user: JSON.parse(localStorage.getItem('LB_ADMIN_USER') || 'null') };
+
+function base() { return $('base').value.trim() || '/api'; }
+function showDebug(v) { $('debugOut').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2); }
+function headers() { return { 'Content-Type': 'application/json', ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}) }; }
+async function api(path, options = {}) {
+  const res = await fetch(base() + path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  if (!res.ok) throw data;
+  showDebug(data);
+  return data;
+}
+function tag(status) {
+  const cls = ['activated', 'submitted', 'done', 'normal'].includes(String(status)) ? 'ok' : 'warn';
+  return `<span class="tag ${cls}">${status || '-'}</span>`;
+}
+function setWho() {
+  $('who').textContent = state.user ? `${state.user.name || state.user.username} / ${state.user.role}` : '未登录';
+}
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.id === id));
+  document.querySelectorAll('.nav button').forEach((el) => el.classList.toggle('active', el.dataset.tab === id));
+}
+
+async function login() {
+  const data = await api('/auth/admin-login', { method: 'POST', body: JSON.stringify({ username: $('username').value.trim(), password: $('password').value }) });
+  state.token = data.token;
+  state.user = data.user;
+  localStorage.setItem('LB_ADMIN_TOKEN', state.token);
+  localStorage.setItem('LB_ADMIN_USER', JSON.stringify(state.user));
+  setWho();
+  await refreshAll();
+}
+async function loadDashboard() {
+  const root = await api('/');
+  $('apiState').textContent = root.version || 'OK';
+  const [boilers, packs, inspections] = await Promise.all([api('/boilers'), api('/material-packs?enterpriseId=1'), api('/inspections')]);
+  $('boilerCount').textContent = boilers.length;
+  $('packCount').textContent = packs.length;
+  $('inspectionCount').textContent = inspections.length;
+}
+async function loadPacks() {
+  const packs = await api('/material-packs?enterpriseId=1');
+  $('packsBody').innerHTML = packs.map((p) => `
+    <tr>
+      <td>${p.id}</td><td>${p.code}</td><td>${tag(p.status)}</td><td>${p.boilerId || '-'}</td><td>${p.expireAt || '-'}</td>
+      <td><button class="secondary" onclick="activatePack('${p.code}')">绑定1001</button></td>
+    </tr>`).join('');
+}
+async function createPack() {
+  await api('/material-packs', { method: 'POST', body: JSON.stringify({ code: $('packCode').value.trim(), type: $('packType').value.trim(), expireAt: $('packExpire').value.trim(), enterpriseId: 1 }) });
+  await loadPacks();
+}
+async function activatePack(code) {
+  await api('/material-packs/activate', { method: 'POST', body: JSON.stringify({ code, enterpriseId: 1, boilerId: 1001 }) });
+  await loadPacks();
+}
+async function loadBoilers() {
+  const boilers = await api('/boilers');
+  $('boilersBody').innerHTML = boilers.map((b) => `<tr><td>${b.id}</td><td>${b.name}</td><td>${b.deviceCode || '-'}</td><td>${b.model || '-'}</td><td>${tag(b.status)}</td></tr>`).join('');
+}
+async function createBoiler() {
+  await api('/boilers', { method: 'POST', body: JSON.stringify({ enterpriseId: 1, deviceCode: $('bDevice').value.trim(), productNo: $('bProduct').value.trim(), model: $('bModel').value.trim(), deviceType: $('bType').value.trim() }) });
+  await loadBoilers();
+}
+async function loadInspections() {
+  const list = await api('/inspections');
+  $('inspectionsBody').innerHTML = list.map((i) => `
+    <tr>
+      <td>${i.inspectionId}</td><td>${i.boilerName || i.boilerId}</td><td>${i.materialPackId}</td><td>${tag(i.status)}</td><td>${i.score || '-'}</td><td>${i.summary || '-'}</td>
+      <td><button class="secondary" onclick="loadInspectionDetail(${i.inspectionId})">详情</button></td>
+    </tr>`).join('');
+}
+async function loadInspectionDetail(id) {
+  const detail = await api('/records/' + id);
+  $('inspectionDetail').textContent = JSON.stringify(detail, null, 2);
+}
+async function loadReport() {
+  const data = await api(`/reports/monthly?enterpriseId=${$('reportEnterprise').value || 1}&month=${encodeURIComponent($('reportMonth').value || '2026-07')}`);
+  $('reportOut').textContent = JSON.stringify(data, null, 2);
+}
+async function refreshAll() {
+  await loadDashboard();
+  await Promise.all([loadPacks(), loadBoilers(), loadInspections(), loadReport()]);
+}
+
+document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
+$('loginBtn').onclick = () => login().catch(showDebug);
+$('refreshBtn').onclick = () => refreshAll().catch(showDebug);
+$('createPackBtn').onclick = () => createPack().catch(showDebug);
+$('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
+$('createBoilerBtn').onclick = () => createBoiler().catch(showDebug);
+$('loadBoilersBtn').onclick = () => loadBoilers().catch(showDebug);
+$('loadInspectionsBtn').onclick = () => loadInspections().catch(showDebug);
+$('loadReportBtn').onclick = () => loadReport().catch(showDebug);
+setWho();
+refreshAll().catch(showDebug);
+</script>
+</body>
+</html>
