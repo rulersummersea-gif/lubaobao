@@ -14,8 +14,12 @@ Page({
     const status = raw.status || raw.riskLevel || 'normal'
     const items = (raw.items || []).map((item) => ({
       name: item.name || item.itemName || '-',
-      value: item.value || '-',
+      value: `${item.value || '-'}${item.unit ? ' ' + item.unit : ''}`,
+      method: item.method || '',
       normalRange: item.normalRange || '',
+      meaning: item.meaning || '',
+      maintenance: item.maintenance || '',
+      priority: item.priority || '',
       statusText: item.status === 'warning' || item.abnormal ? '异常' : '正常'
     }))
     const warning = String(status).toLowerCase() === 'warning' || items.some((item) => item.statusText === '异常')

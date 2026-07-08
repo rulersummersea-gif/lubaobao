@@ -145,6 +145,15 @@
 ```json
 { "inspectionId": 9001 }
 ```
+当前第一版锅水检测模板按优先级返回 6 项：
+1. pH：pH试纸
+2. 磷酸根：磷酸根试纸
+3. 亚硫酸根：亚硫酸根试纸
+4. 总碱度：总碱度试纸
+5. 电导率/TDS：电导率笔/TDS笔
+6. 氯离子：氯离子试纸/滴定包
+
+每个检测项包含 `priority`、`method`、`normalRange`、`meaning`、`maintenance`，用于小程序和后台展示维护指导。
 
 ### GET `/inspections/result?inspectionId=9001`
 

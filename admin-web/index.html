@@ -468,8 +468,8 @@ function renderInspectionDetail(detail) {
     <div class="detail-cell" style="margin-bottom:12px;"><span>摘要</span><b>${esc(detail.summary || '暂无摘要')}</b></div>
     <h3>检测明细</h3>
     <table>
-      <thead><tr><th>项目</th><th>检测值</th><th>状态</th><th>正常范围</th></tr></thead>
-      <tbody>${items.map((item) => `<tr><td>${esc(item.name)}</td><td>${esc(item.value)}</td><td>${tag(item.status)}</td><td>${esc(item.normalRange || '-')}</td></tr>`).join('') || '<tr><td colspan="4">暂无检测项</td></tr>'}</tbody>
+      <thead><tr><th>优先级</th><th>项目</th><th>检测值</th><th>状态</th><th>工具</th><th>正常范围</th><th>维护建议</th></tr></thead>
+      <tbody>${items.map((item) => `<tr><td>${esc(item.priority || '-')}</td><td>${esc(item.name)}</td><td>${esc(item.value)}${item.unit ? ' ' + esc(item.unit) : ''}</td><td>${tag(item.status)}</td><td>${esc(item.method || '-')}</td><td>${esc(item.normalRange || '-')}</td><td>${esc(item.maintenance || item.meaning || '-')}</td></tr>`).join('') || '<tr><td colspan="7">暂无检测项</td></tr>'}</tbody>
     </table>
     <h3>诊断建议</h3>
     <table>
