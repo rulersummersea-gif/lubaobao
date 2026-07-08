@@ -52,6 +52,8 @@
 ```
 
 ### GET `/boilers?enterpriseId=1`
+按企业查询锅炉列表。返回字段中预留 `status`，但当前阶段后台不提供启停操作。
+
 ### POST `/boilers`
 锅炉入参（12字段）：
 ```json
@@ -66,6 +68,26 @@
   "ratedSteamTemp": 194,
   "fuelType": "生物质颗粒",
   "thermalEfficiency": 84.2,
+  "manufacturer": "青岛胜利锅炉有限公司",
+  "manufactureDate": "2025-08-01",
+  "licenseNo": "TS2110709-2027"
+}
+```
+
+### PUT `/boilers/{id}`
+编辑锅炉档案资料，需要 `platform_admin` 或 `enterprise_admin`。
+```json
+{
+  "enterpriseId": 1,
+  "deviceCode": "110010709202500028",
+  "productNo": "MQ251254007W",
+  "model": "DZA4-1.25-SCI",
+  "deviceType": "蒸汽锅炉",
+  "ratedCapacity": "4t/h",
+  "ratedPressure": "1.25",
+  "ratedSteamTemp": "194",
+  "fuelType": "生物质颗粒",
+  "thermalEfficiency": "84.2",
   "manufacturer": "青岛胜利锅炉有限公司",
   "manufactureDate": "2025-08-01",
   "licenseNo": "TS2110709-2027"

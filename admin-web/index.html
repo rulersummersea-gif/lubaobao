@@ -130,19 +130,33 @@
 
     <section id="boilers" class="tab">
       <div class="card">
-        <h2>新增锅炉</h2>
+        <h2 id="boilerFormTitle">新增锅炉</h2>
         <div class="row">
+          <input id="boilerId" type="hidden">
+          <input id="bEnterprise" value="1" placeholder="企业ID">
           <input id="bDevice" value="D-1002" placeholder="设备代码">
           <input id="bProduct" value="P-1002" placeholder="产品编号">
           <input id="bModel" value="DZL6-1.25" placeholder="型号">
           <input id="bType" value="蒸汽锅炉" placeholder="设备类型">
-          <button id="createBoilerBtn">新增锅炉</button>
-          <button class="secondary" id="loadBoilersBtn">刷新列表</button>
+          <input id="bCapacity" placeholder="额定容量">
+          <input id="bPressure" placeholder="额定压力">
+          <input id="bSteamTemp" placeholder="蒸汽温度">
+          <input id="bFuel" placeholder="燃料类型">
+          <input id="bEfficiency" placeholder="热效率">
+          <input id="bManufacturer" placeholder="制造单位">
+          <input id="bManufactureDate" placeholder="制造日期">
+          <input id="bLicense" placeholder="许可证编号">
+          <button id="saveBoilerBtn">保存锅炉</button>
+          <button class="secondary" id="resetBoilerFormBtn">清空</button>
         </div>
       </div>
       <div class="card">
-        <h2>锅炉列表</h2>
-        <table><thead><tr><th>ID</th><th>名称</th><th>设备代码</th><th>型号</th><th>状态</th></tr></thead><tbody id="boilersBody"></tbody></table>
+        <div class="row">
+          <h2 style="margin-right:auto">锅炉列表</h2>
+          <input id="boilerEnterpriseFilter" value="1" placeholder="企业ID">
+          <button class="secondary" id="loadBoilersBtn">刷新列表</button>
+        </div>
+        <table><thead><tr><th>ID</th><th>企业</th><th>名称</th><th>设备代码</th><th>产品编号</th><th>型号</th><th>类型</th><th>操作</th></tr></thead><tbody id="boilersBody"></tbody></table>
       </div>
     </section>
 
@@ -222,6 +236,7 @@ const state = {
   token: localStorage.getItem('LB_ADMIN_TOKEN') || '',
   user: JSON.parse(localStorage.getItem('LB_ADMIN_USER') || 'null'),
   enterprises: [],
+  boilers: [],
   users: [],
 };
 
@@ -347,12 +362,80 @@ async function invalidatePack(code) {
   await loadPacks();
 }
 async function loadBoilers() {
-  const boilers = await api('/boilers');
-  $('boilersBody').innerHTML = boilers.map((b) => `<tr><td>${b.id}</td><td>${b.name}</td><td>${b.deviceCode || '-'}</td><td>${b.model || '-'}</td><td>${tag(b.status)}</td></tr>`).join('');
+  const enterpriseId = $('boilerEnterpriseFilter').value || 1;
+  const boilers = await api('/boilers?enterpriseId=' + encodeURIComponent(enterpriseId));
+  state.boilers = boilers;
+  $('boilersBody').innerHTML = boilers.map((b) => `
+    <tr>
+      <td>${b.id}</td><td>${b.enterpriseId || '-'}</td><td>${esc(b.name)}</td><td>${esc(b.deviceCode || '-')}</td><td>${esc(b.productNo || '-')}</td><td>${esc(b.model || '-')}</td><td>${esc(b.deviceType || '-')}</td>
+      <td><button class="secondary" onclick="editBoiler(${b.id})">编辑</button></td>
+    </tr>`).join('');
 }
-async function createBoiler() {
-  await api('/boilers', { method: 'POST', body: JSON.stringify({ enterpriseId: 1, deviceCode: $('bDevice').value.trim(), productNo: $('bProduct').value.trim(), model: $('bModel').value.trim(), deviceType: $('bType').value.trim() }) });
+function boilerPayload() {
+  return {
+    enterpriseId: Number($('bEnterprise').value || 1),
+    deviceCode: $('bDevice').value.trim(),
+    productNo: $('bProduct').value.trim(),
+    model: $('bModel').value.trim(),
+    deviceType: $('bType').value.trim(),
+    ratedCapacity: $('bCapacity').value.trim(),
+    ratedPressure: $('bPressure').value.trim(),
+    ratedSteamTemp: $('bSteamTemp').value.trim(),
+    fuelType: $('bFuel').value.trim(),
+    thermalEfficiency: $('bEfficiency').value.trim(),
+    manufacturer: $('bManufacturer').value.trim(),
+    manufactureDate: $('bManufactureDate').value.trim(),
+    licenseNo: $('bLicense').value.trim(),
+  };
+}
+function resetBoilerForm() {
+  $('boilerId').value = '';
+  $('bEnterprise').value = $('boilerEnterpriseFilter').value || state.user?.enterpriseId || 1;
+  $('bDevice').value = '';
+  $('bProduct').value = '';
+  $('bModel').value = '';
+  $('bType').value = '蒸汽锅炉';
+  $('bCapacity').value = '';
+  $('bPressure').value = '';
+  $('bSteamTemp').value = '';
+  $('bFuel').value = '';
+  $('bEfficiency').value = '';
+  $('bManufacturer').value = '';
+  $('bManufactureDate').value = '';
+  $('bLicense').value = '';
+  $('boilerFormTitle').textContent = '新增锅炉';
+}
+function editBoiler(id) {
+  const boiler = state.boilers.find((item) => item.id === id);
+  if (!boiler) return;
+  $('boilerId').value = boiler.id;
+  $('bEnterprise').value = boiler.enterpriseId || 1;
+  $('bDevice').value = boiler.deviceCode || '';
+  $('bProduct').value = boiler.productNo || '';
+  $('bModel').value = boiler.model || '';
+  $('bType').value = boiler.deviceType || '';
+  $('bCapacity').value = boiler.ratedCapacity || '';
+  $('bPressure').value = boiler.ratedPressure || '';
+  $('bSteamTemp').value = boiler.ratedSteamTemp || '';
+  $('bFuel').value = boiler.fuelType || '';
+  $('bEfficiency').value = boiler.thermalEfficiency || '';
+  $('bManufacturer').value = boiler.manufacturer || '';
+  $('bManufactureDate').value = boiler.manufactureDate || '';
+  $('bLicense').value = boiler.licenseNo || '';
+  $('boilerFormTitle').textContent = `编辑锅炉：${boiler.name || boiler.model}`;
+}
+async function saveBoiler() {
+  const id = $('boilerId').value;
+  const payload = boilerPayload();
+  if (id) {
+    await api('/boilers/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+  } else {
+    await api('/boilers', { method: 'POST', body: JSON.stringify(payload) });
+  }
+  $('boilerEnterpriseFilter').value = payload.enterpriseId;
+  resetBoilerForm();
   await loadBoilers();
+  await loadDashboard();
 }
 async function loadInspections() {
   const params = new URLSearchParams();
@@ -481,7 +564,8 @@ $('resetEnterpriseFormBtn').onclick = () => resetEnterpriseForm();
 $('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
 $('createPackBtn').onclick = () => createPack().catch(showDebug);
 $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
-$('createBoilerBtn').onclick = () => createBoiler().catch(showDebug);
+$('saveBoilerBtn').onclick = () => saveBoiler().catch(showDebug);
+$('resetBoilerFormBtn').onclick = () => resetBoilerForm();
 $('loadBoilersBtn').onclick = () => loadBoilers().catch(showDebug);
 $('loadInspectionsBtn').onclick = () => loadInspections().catch(showDebug);
 $('loadUsersBtn').onclick = () => loadUsers().catch(showDebug);
@@ -490,6 +574,7 @@ $('resetUserFormBtn').onclick = () => resetUserForm();
 $('loadReportBtn').onclick = () => loadReport().catch(showDebug);
 setWho();
 resetEnterpriseForm();
+resetBoilerForm();
 resetUserForm();
 refreshAll().catch(showDebug);
 </script>

@@ -494,6 +494,23 @@ class BoilerCreateReq(BaseModel):
     licenseNo: Optional[str] = ""
 
 
+class BoilerUpdateReq(BaseModel):
+    enterpriseId: Optional[int] = None
+    deviceCode: Optional[str] = None
+    productNo: Optional[str] = None
+    model: Optional[str] = None
+    deviceType: Optional[str] = None
+    ratedCapacity: Optional[str] = None
+    ratedPressure: Optional[str] = None
+    ratedSteamTemp: Optional[str] = None
+    fuelType: Optional[str] = None
+    thermalEfficiency: Optional[str] = None
+    manufacturer: Optional[str] = None
+    manufactureDate: Optional[str] = None
+    licenseNo: Optional[str] = None
+    status: Optional[str] = None
+
+
 class PackCreateReq(BaseModel):
     code: str
     enterpriseId: int = 1
@@ -768,7 +785,11 @@ def boilers(enterpriseId: int = 1):
         rows = conn.execute(
             """
             SELECT id, enterprise_id AS enterpriseId, name, device_code AS deviceCode,
-                   product_no AS productNo, model, device_type AS deviceType, status
+                   product_no AS productNo, model, device_type AS deviceType,
+                   rated_capacity AS ratedCapacity, rated_pressure AS ratedPressure,
+                   rated_steam_temp AS ratedSteamTemp, fuel_type AS fuelType,
+                   thermal_efficiency AS thermalEfficiency, manufacturer, manufacture_date AS manufactureDate,
+                   license_no AS licenseNo, status
             FROM boilers WHERE enterprise_id = ? ORDER BY id
             """,
             (enterpriseId,),
@@ -808,6 +829,69 @@ def create_boiler(req: BoilerCreateReq, authorization: Optional[str] = Header(No
             ),
         )
         return {"id": cur.lastrowid, "name": req.model, "enterpriseId": req.enterpriseId}
+
+
+@app.put("/boilers/{boiler_id}")
+def update_boiler(boiler_id: int, req: BoilerUpdateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    field_map = {
+        "enterpriseId": "enterprise_id",
+        "deviceCode": "device_code",
+        "productNo": "product_no",
+        "model": "model",
+        "deviceType": "device_type",
+        "ratedCapacity": "rated_capacity",
+        "ratedPressure": "rated_pressure",
+        "ratedSteamTemp": "rated_steam_temp",
+        "fuelType": "fuel_type",
+        "thermalEfficiency": "thermal_efficiency",
+        "manufacturer": "manufacturer",
+        "manufactureDate": "manufacture_date",
+        "licenseNo": "license_no",
+        "status": "status",
+    }
+    with db() as conn:
+        existing = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (boiler_id,)).fetchone())
+        if not existing:
+            raise HTTPException(status_code=404, detail="锅炉不存在")
+        target_enterprise_id = req.enterpriseId if req.enterpriseId is not None else existing["enterprise_id"]
+        ensure_enterprise_scope(current_user, target_enterprise_id)
+        if current_user["role"] == "enterprise_admin":
+            ensure_enterprise_scope(current_user, existing["enterprise_id"])
+        updates = []
+        params = []
+        payload = req.dict(exclude_unset=True)
+        if payload.get("status") is not None and payload["status"] not in ("normal", "archived"):
+            raise HTTPException(status_code=400, detail="状态不合法")
+        for key, column in field_map.items():
+            if key not in payload:
+                continue
+            value = payload[key]
+            if isinstance(value, str):
+                value = value.strip()
+            if key in ("deviceCode", "productNo", "model", "deviceType") and not value:
+                raise HTTPException(status_code=400, detail="设备代码、产品编号、型号和设备类型不能为空")
+            updates.append(f"{column} = ?")
+            params.append(value)
+        if "model" in payload:
+            updates.append("name = ?")
+            params.append(payload["model"].strip())
+        if updates:
+            params.append(boiler_id)
+            conn.execute(f"UPDATE boilers SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        row = conn.execute(
+            """
+            SELECT id, enterprise_id AS enterpriseId, name, device_code AS deviceCode,
+                   product_no AS productNo, model, device_type AS deviceType,
+                   rated_capacity AS ratedCapacity, rated_pressure AS ratedPressure,
+                   rated_steam_temp AS ratedSteamTemp, fuel_type AS fuelType,
+                   thermal_efficiency AS thermalEfficiency, manufacturer, manufacture_date AS manufactureDate,
+                   license_no AS licenseNo, status
+            FROM boilers WHERE id = ?
+            """,
+            (boiler_id,),
+        ).fetchone()
+        return row_to_dict(row)
 
 
 @app.get("/material-packs")
