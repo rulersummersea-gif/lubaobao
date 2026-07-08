@@ -184,6 +184,15 @@ def ensure_enterprise_scope(user: dict, enterprise_id: int) -> None:
         raise HTTPException(status_code=403, detail="无权管理其他企业数据")
 
 
+def ensure_user_manage_scope(current_user: dict, role: str, enterprise_id: int) -> None:
+    if role not in ("platform_admin", "enterprise_admin", "inspector"):
+        raise HTTPException(status_code=400, detail="角色不合法")
+    if current_user["role"] == "enterprise_admin":
+        ensure_enterprise_scope(current_user, enterprise_id)
+        if role == "platform_admin":
+            raise HTTPException(status_code=403, detail="企业管理员不能创建或修改平台管理员")
+
+
 def user_response(row) -> dict:
     user = row_to_dict(row)
     return {
@@ -434,6 +443,26 @@ class AdminLoginReq(BaseModel):
     password: str
 
 
+class UserCreateReq(BaseModel):
+    username: str
+    password: str
+    name: str
+    role: str = "inspector"
+    enterpriseId: int = 1
+
+
+class UserUpdateReq(BaseModel):
+    password: Optional[str] = None
+    name: Optional[str] = None
+    role: Optional[str] = None
+    enterpriseId: Optional[int] = None
+    status: Optional[str] = None
+
+
+class UserStatusReq(BaseModel):
+    status: str
+
+
 class BoilerCreateReq(BaseModel):
     enterpriseId: int = 1
     deviceCode: str
@@ -551,6 +580,93 @@ def users(authorization: Optional[str] = Header(None)):
             tuple(params),
         )
         return [user_response(row) for row in rows]
+
+
+@app.post("/users")
+def create_user(req: UserCreateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    username = req.username.strip()
+    name = req.name.strip()
+    if not username or not name or not req.password:
+        raise HTTPException(status_code=400, detail="账号、姓名和密码不能为空")
+    ensure_user_manage_scope(current_user, req.role, req.enterpriseId)
+    with db() as conn:
+        try:
+            cur = conn.execute(
+                """
+                INSERT INTO users(username, password_hash, name, role, enterprise_id, status, created_at)
+                VALUES(?, ?, ?, ?, ?, 'active', ?)
+                """,
+                (username, password_hash(req.password), name, req.role, req.enterpriseId, now()),
+            )
+        except Exception as exc:
+            if not is_integrity_error(exc):
+                raise
+            raise HTTPException(status_code=409, detail="账号已存在")
+        row = conn.execute(
+            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            (cur.lastrowid,),
+        ).fetchone()
+        return user_response(row)
+
+
+@app.put("/users/{user_id}")
+def update_user(user_id: int, req: UserUpdateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        existing = row_to_dict(
+            conn.execute(
+                "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        target_role = req.role or existing["role"]
+        target_enterprise_id = req.enterpriseId if req.enterpriseId is not None else existing["enterprise_id"]
+        ensure_user_manage_scope(current_user, target_role, target_enterprise_id)
+        if current_user["role"] == "enterprise_admin":
+            ensure_user_manage_scope(current_user, existing["role"], existing["enterprise_id"])
+        updates = []
+        params = []
+        if req.name is not None:
+            if not req.name.strip():
+                raise HTTPException(status_code=400, detail="姓名不能为空")
+            updates.append("name = ?")
+            params.append(req.name.strip())
+        if req.role is not None:
+            updates.append("role = ?")
+            params.append(req.role)
+        if req.enterpriseId is not None:
+            updates.append("enterprise_id = ?")
+            params.append(req.enterpriseId)
+        if req.status is not None:
+            if req.status not in ("active", "disabled"):
+                raise HTTPException(status_code=400, detail="状态不合法")
+            if req.status == "disabled" and current_user.get("id") == user_id:
+                raise HTTPException(status_code=400, detail="不能禁用当前登录用户")
+            updates.append("status = ?")
+            params.append(req.status)
+        if req.role is not None and current_user.get("id") == user_id and req.role != current_user.get("role"):
+            raise HTTPException(status_code=400, detail="不能修改当前登录用户角色")
+        if req.password:
+            updates.append("password_hash = ?")
+            params.append(password_hash(req.password))
+        if updates:
+            params.append(user_id)
+            conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        row = conn.execute(
+            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        return user_response(row)
+
+
+@app.patch("/users/{user_id}/status")
+def update_user_status(user_id: int, req: UserStatusReq, authorization: Optional[str] = Header(None)):
+    if req.status not in ("active", "disabled"):
+        raise HTTPException(status_code=400, detail="状态不合法")
+    return update_user(user_id, UserUpdateReq(status=req.status), authorization)
 
 
 @app.get("/enterprises")

@@ -133,9 +133,27 @@
 ### GET `/users`
 返回数据库用户列表，需要 `platform_admin` 或 `enterprise_admin`。
 
+### POST `/users`
+新增后台用户，需要 `platform_admin` 或 `enterprise_admin`。
+```json
+{ "username": "worker01", "password": "Init@123", "name": "巡检员A", "role": "inspector", "enterpriseId": 1 }
+```
+
+### PUT `/users/{id}`
+编辑用户姓名、角色、企业、状态或密码。密码为空时不修改密码。
+```json
+{ "name": "巡检员A", "role": "inspector", "enterpriseId": 1, "status": "active", "password": "New@123" }
+```
+
+### PATCH `/users/{id}/status`
+启用或禁用用户。
+```json
+{ "status": "disabled" }
+```
+
 ### 当前角色权限
 - `platform_admin`：可查看用户、创建锅炉、创建/作废/解绑检测包。
-- `enterprise_admin`：可管理本企业用户可见范围、创建本企业锅炉、创建/作废/解绑本企业检测包。
+- `enterprise_admin`：可管理本企业用户、创建本企业锅炉、创建/作废/解绑本企业检测包；不能创建或修改平台管理员。
 - `inspector`：保留小程序巡检流程权限，可登录、选锅炉、校验/激活检测包、创建巡检、上传图片、识别、提交和查看记录。
 
 ---

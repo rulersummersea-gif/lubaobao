@@ -26,6 +26,7 @@
     button { min-height: 40px; border: 0; border-radius: 8px; padding: 0 14px; background: #2563eb; color: #fff; cursor: pointer; font-size: 14px; }
     button.secondary { background: #e2e8f0; color: #0f172a; }
     button.warn { background: #f59e0b; }
+    button.danger { background: #dc2626; }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; background: #fff; }
     th, td { border-bottom: 1px solid #e2e8f0; padding: 10px; text-align: left; vertical-align: top; }
     th { color: #475569; font-size: 13px; background: #f8fafc; }
@@ -149,11 +150,28 @@
 
     <section id="users" class="tab">
       <div class="card">
+        <h2 id="userFormTitle">新增用户</h2>
+        <div class="row">
+          <input id="userId" type="hidden">
+          <input id="userAccount" placeholder="账号">
+          <input id="userName" placeholder="姓名">
+          <select id="userRole">
+            <option value="inspector">巡检员</option>
+            <option value="enterprise_admin">企业管理员</option>
+            <option value="platform_admin">平台管理员</option>
+          </select>
+          <input id="userEnterprise" value="1" placeholder="企业ID">
+          <input id="userPassword" type="password" placeholder="初始密码/新密码">
+          <button id="saveUserBtn">保存用户</button>
+          <button class="secondary" id="resetUserFormBtn">清空</button>
+        </div>
+      </div>
+      <div class="card">
         <div class="row">
           <h2 style="margin-right:auto">用户权限</h2>
           <button class="secondary" id="loadUsersBtn">刷新用户</button>
         </div>
-        <table><thead><tr><th>ID</th><th>账号</th><th>姓名</th><th>角色</th><th>企业</th></tr></thead><tbody id="usersBody"></tbody></table>
+        <table><thead><tr><th>ID</th><th>账号</th><th>姓名</th><th>角色</th><th>企业</th><th>状态</th><th>操作</th></tr></thead><tbody id="usersBody"></tbody></table>
       </div>
     </section>
 
@@ -180,7 +198,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { token: localStorage.getItem('LB_ADMIN_TOKEN') || '', user: JSON.parse(localStorage.getItem('LB_ADMIN_USER') || 'null') };
+const state = { token: localStorage.getItem('LB_ADMIN_TOKEN') || '', user: JSON.parse(localStorage.getItem('LB_ADMIN_USER') || 'null'), users: [] };
 
 function base() { return $('base').value.trim() || '/api'; }
 function showDebug(v) { $('debugOut').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2); }
@@ -195,7 +213,7 @@ async function api(path, options = {}) {
   return data;
 }
 function tag(status) {
-  const cls = ['activated', 'submitted', 'done', 'normal'].includes(String(status)) ? 'ok' : 'warn';
+  const cls = ['activated', 'submitted', 'done', 'normal', 'active'].includes(String(status)) ? 'ok' : 'warn';
   return `<span class="tag ${cls}">${status || '-'}</span>`;
 }
 function esc(value) {
@@ -315,7 +333,63 @@ function renderInspectionDetail(detail) {
 }
 async function loadUsers() {
   const users = await api('/users');
-  $('usersBody').innerHTML = users.map((u) => `<tr><td>${u.id}</td><td>${u.username}</td><td>${u.name}</td><td>${tag(u.role)}</td><td>${u.enterpriseId || '-'}</td></tr>`).join('');
+  state.users = users;
+  $('usersBody').innerHTML = users.map((u) => `
+    <tr>
+      <td>${u.id}</td><td>${esc(u.username)}</td><td>${esc(u.name)}</td><td>${tag(u.role)}</td><td>${u.enterpriseId || '-'}</td><td>${tag(u.status)}</td>
+      <td>
+        <button class="secondary" onclick="editUser(${u.id})">编辑</button>
+        ${u.status === 'active'
+          ? `<button class="danger" onclick="setUserStatus(${u.id}, 'disabled')">禁用</button>`
+          : `<button class="secondary" onclick="setUserStatus(${u.id}, 'active')">启用</button>`}
+      </td>
+    </tr>`).join('');
+}
+function resetUserForm() {
+  $('userId').value = '';
+  $('userAccount').value = '';
+  $('userAccount').disabled = false;
+  $('userName').value = '';
+  $('userRole').value = 'inspector';
+  $('userEnterprise').value = state.user?.enterpriseId || 1;
+  $('userPassword').value = '';
+  $('userFormTitle').textContent = '新增用户';
+}
+function editUser(id) {
+  const user = state.users.find((item) => item.id === id);
+  if (!user) return;
+  $('userId').value = user.id;
+  $('userAccount').value = user.username;
+  $('userAccount').disabled = true;
+  $('userName').value = user.name;
+  $('userRole').value = user.role;
+  $('userEnterprise').value = user.enterpriseId || 1;
+  $('userPassword').value = '';
+  $('userFormTitle').textContent = `编辑用户：${user.username}`;
+}
+async function saveUser() {
+  const id = $('userId').value;
+  const payload = {
+    name: $('userName').value.trim(),
+    role: $('userRole').value,
+    enterpriseId: Number($('userEnterprise').value || 1),
+  };
+  if ($('userPassword').value) payload.password = $('userPassword').value;
+  if (id) {
+    await api('/users/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+  } else {
+    payload.username = $('userAccount').value.trim();
+    payload.password = $('userPassword').value;
+    await api('/users', { method: 'POST', body: JSON.stringify(payload) });
+  }
+  resetUserForm();
+  await loadUsers();
+}
+async function setUserStatus(id, status) {
+  const action = status === 'active' ? '启用' : '禁用';
+  if (!confirm(`确认${action}该用户？`)) return;
+  await api('/users/' + id + '/status', { method: 'PATCH', body: JSON.stringify({ status }) });
+  await loadUsers();
 }
 async function loadReport() {
   const data = await api(`/reports/monthly?enterpriseId=${$('reportEnterprise').value || 1}&month=${encodeURIComponent($('reportMonth').value || '2026-07')}`);
@@ -335,8 +409,11 @@ $('createBoilerBtn').onclick = () => createBoiler().catch(showDebug);
 $('loadBoilersBtn').onclick = () => loadBoilers().catch(showDebug);
 $('loadInspectionsBtn').onclick = () => loadInspections().catch(showDebug);
 $('loadUsersBtn').onclick = () => loadUsers().catch(showDebug);
+$('saveUserBtn').onclick = () => saveUser().catch(showDebug);
+$('resetUserFormBtn').onclick = () => resetUserForm();
 $('loadReportBtn').onclick = () => loadReport().catch(showDebug);
 setWho();
+resetUserForm();
 refreshAll().catch(showDebug);
 </script>
 </body>
