@@ -32,6 +32,13 @@
     .tag { display: inline-block; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 700; background: #dbeafe; color: #1d4ed8; }
     .tag.ok { background: #dcfce7; color: #166534; }
     .tag.warn { background: #fef3c7; color: #92400e; }
+    .detail-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .detail-cell { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; }
+    .detail-cell span { display: block; color: #64748b; font-size: 12px; margin-bottom: 6px; }
+    .detail-cell b { font-size: 16px; }
+    .image-box { display: grid; grid-template-columns: minmax(220px, 360px) 1fr; gap: 14px; align-items: start; margin-top: 12px; }
+    .image-box img { width: 100%; max-height: 320px; object-fit: contain; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+    .empty { color: #64748b; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 18px; text-align: center; }
     pre { white-space: pre-wrap; word-break: break-word; background: #0b1020; color: #dbeafe; padding: 12px; border-radius: 8px; max-height: 360px; overflow: auto; }
     .tab { display: none; }
     .tab.active { display: block; }
@@ -39,6 +46,7 @@
       .wrap { grid-template-columns: 1fr; }
       .side { position: static; }
       .grid { grid-template-columns: 1fr 1fr; }
+      .detail-grid, .image-box { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -135,7 +143,7 @@
       </div>
       <div class="card">
         <h2>记录详情</h2>
-        <pre id="inspectionDetail">{}</pre>
+        <div id="inspectionDetail" class="empty">请选择一条巡检记录查看详情</div>
       </div>
     </section>
 
@@ -189,6 +197,9 @@ async function api(path, options = {}) {
 function tag(status) {
   const cls = ['activated', 'submitted', 'done', 'normal'].includes(String(status)) ? 'ok' : 'warn';
   return `<span class="tag ${cls}">${status || '-'}</span>`;
+}
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 function setWho() {
   $('who').textContent = state.user ? `${state.user.name || state.user.username} / ${state.user.role}` : '未登录';
@@ -266,7 +277,41 @@ async function loadInspections() {
 }
 async function loadInspectionDetail(id) {
   const detail = await api('/records/' + id);
-  $('inspectionDetail').textContent = JSON.stringify(detail, null, 2);
+  renderInspectionDetail(detail);
+}
+function renderInspectionDetail(detail) {
+  const items = detail.items || [];
+  const diagnosis = detail.diagnosis || [];
+  const imageUrl = detail.imageUrl ? base() + detail.imageUrl : '';
+  $('inspectionDetail').className = '';
+  $('inspectionDetail').innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-cell"><span>巡检ID</span><b>${esc(detail.inspectionId || '-')}</b></div>
+      <div class="detail-cell"><span>状态</span><b>${tag(detail.status)}</b></div>
+      <div class="detail-cell"><span>健康评分</span><b>${esc(detail.score || '-')}</b></div>
+      <div class="detail-cell"><span>提交时间</span><b>${esc(detail.submittedAt || '-')}</b></div>
+    </div>
+    <div class="detail-cell" style="margin-bottom:12px;"><span>摘要</span><b>${esc(detail.summary || '暂无摘要')}</b></div>
+    <h3>检测明细</h3>
+    <table>
+      <thead><tr><th>项目</th><th>检测值</th><th>状态</th><th>正常范围</th></tr></thead>
+      <tbody>${items.map((item) => `<tr><td>${esc(item.name)}</td><td>${esc(item.value)}</td><td>${tag(item.status)}</td><td>${esc(item.normalRange || '-')}</td></tr>`).join('') || '<tr><td colspan="4">暂无检测项</td></tr>'}</tbody>
+    </table>
+    <h3>诊断建议</h3>
+    <table>
+      <thead><tr><th>建议内容</th></tr></thead>
+      <tbody>${diagnosis.map((item) => `<tr><td>${esc(typeof item === 'string' ? item : (item.advice || item.title || '-'))}</td></tr>`).join('') || '<tr><td>暂无诊断建议</td></tr>'}</tbody>
+    </table>
+    <h3>巡检图片</h3>
+    ${imageUrl ? `
+      <div class="image-box">
+        <a href="${esc(imageUrl)}" target="_blank"><img src="${esc(imageUrl)}" alt="巡检图片"></a>
+        <div class="detail-cell"><span>图片地址</span><b><a href="${esc(imageUrl)}" target="_blank">新窗口打开</a></b></div>
+      </div>
+    ` : '<div class="empty">暂无上传图片</div>'}
+    <h3>备注</h3>
+    <div class="detail-cell"><b>${esc(detail.remark || '暂无备注')}</b></div>
+  `;
 }
 async function loadUsers() {
   const users = await api('/users');
