@@ -173,6 +173,19 @@ WATER_TEST_ITEMS = [
 ]
 
 
+WATER_QUALITY_LIMITS = [
+    {"code": "ph", "min": 8.5, "max": 10.5, "unit": "", "range": "8.5-10.5"},
+    {"code": "phosphate", "min": 10, "max": 30, "unit": "mg/L", "range": "10-30 mg/L"},
+    {"code": "sulfite", "min": 10, "max": 30, "unit": "mg/L", "range": "10-30 mg/L"},
+    {"code": "alkalinity", "min": 6, "max": 26, "unit": "mmol/L", "range": "6-26 mmol/L"},
+    {"code": "chloride", "min": None, "max": 300, "unit": "mg/L", "range": "≤300 mg/L"},
+    {"code": "hardness", "min": None, "max": 0.03, "unit": "mmol/L", "range": "≤0.03 mmol/L"},
+]
+
+STANDARD_SOURCE = "GB/T 1576 工业锅炉水质"
+STANDARD_NOTE = "工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。"
+
+
 def encode_token_part(payload: bytes) -> str:
     return base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
 
@@ -328,6 +341,54 @@ def seed_water_test_items(conn) -> None:
         )
 
 
+def seed_water_quality_limits(conn) -> None:
+    insert_sql = (
+        """
+        INSERT INTO water_quality_limits(
+          item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa,
+          min_value, max_value, unit, display_range, standard_source, standard_note, enabled, created_at
+        ) VALUES(?, 'steam', 'boiler_water', 0, 3.8, ?, ?, ?, ?, ?, ?, 1, ?)
+        ON DUPLICATE KEY UPDATE
+          min_value = VALUES(min_value),
+          max_value = VALUES(max_value),
+          unit = VALUES(unit),
+          display_range = VALUES(display_range),
+          standard_source = VALUES(standard_source),
+          standard_note = VALUES(standard_note),
+          enabled = 1
+        """
+        if DB_DRIVER == "mysql"
+        else """
+        INSERT INTO water_quality_limits(
+          item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa,
+          min_value, max_value, unit, display_range, standard_source, standard_note, enabled, created_at
+        ) VALUES(?, 'steam', 'boiler_water', 0, 3.8, ?, ?, ?, ?, ?, ?, 1, ?)
+        ON CONFLICT(item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa) DO UPDATE SET
+          min_value = excluded.min_value,
+          max_value = excluded.max_value,
+          unit = excluded.unit,
+          display_range = excluded.display_range,
+          standard_source = excluded.standard_source,
+          standard_note = excluded.standard_note,
+          enabled = 1
+        """
+    )
+    for limit in WATER_QUALITY_LIMITS:
+        conn.execute(
+            insert_sql,
+            (
+                limit["code"],
+                limit["min"],
+                limit["max"],
+                limit["unit"],
+                limit["range"],
+                STANDARD_SOURCE,
+                STANDARD_NOTE,
+                now(),
+            ),
+        )
+
+
 def seed_data(conn) -> None:
     conn.execute(
         "INSERT IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)"
@@ -337,6 +398,7 @@ def seed_data(conn) -> None:
     )
     seed_users(conn)
     seed_water_test_items(conn)
+    seed_water_quality_limits(conn)
     conn.execute(
         """
         INSERT IGNORE INTO boilers(
@@ -435,6 +497,23 @@ def init_sqlite() -> None:
               maintenance TEXT,
               enabled INTEGER NOT NULL DEFAULT 1,
               created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS water_quality_limits (
+              id INTEGER PRIMARY KEY,
+              item_code TEXT NOT NULL,
+              boiler_type TEXT NOT NULL DEFAULT 'steam',
+              sample_type TEXT NOT NULL DEFAULT 'boiler_water',
+              pressure_min_mpa REAL,
+              pressure_max_mpa REAL,
+              min_value REAL,
+              max_value REAL,
+              unit TEXT,
+              display_range TEXT,
+              standard_source TEXT,
+              standard_note TEXT,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              UNIQUE(item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa)
             );
             CREATE TABLE IF NOT EXISTS inspections (
               id INTEGER PRIMARY KEY,
@@ -542,6 +621,24 @@ def init_mysql() -> None:
               enabled TINYINT NOT NULL DEFAULT 1,
               created_at DATETIME NOT NULL,
               KEY idx_water_items_priority (priority)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS water_quality_limits (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              item_code VARCHAR(64) NOT NULL,
+              boiler_type VARCHAR(32) NOT NULL DEFAULT 'steam',
+              sample_type VARCHAR(32) NOT NULL DEFAULT 'boiler_water',
+              pressure_min_mpa DECIMAL(8,3) NULL,
+              pressure_max_mpa DECIMAL(8,3) NULL,
+              min_value DECIMAL(12,4) NULL,
+              max_value DECIMAL(12,4) NULL,
+              unit VARCHAR(32) NULL,
+              display_range VARCHAR(64) NULL,
+              standard_source VARCHAR(128) NULL,
+              standard_note VARCHAR(512) NULL,
+              enabled TINYINT NOT NULL DEFAULT 1,
+              created_at DATETIME NOT NULL,
+              UNIQUE KEY uk_water_limit_scope (item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa),
+              KEY idx_water_limits_item (item_code)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             CREATE TABLE IF NOT EXISTS inspections (
               id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -1208,28 +1305,88 @@ def unbind_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
     return {"code": req.code, "status": "activated", "boilerId": None}
 
 
-def inspection_result_payload(inspection_id: int) -> dict:
+def parse_number(value: str) -> Optional[float]:
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def get_water_test_templates(conn) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT i.code, i.name, i.priority, i.method, i.meaning, i.maintenance,
+               l.min_value AS standardMin, l.max_value AS standardMax, l.unit,
+               l.display_range AS normalRange, l.standard_source AS standardSource,
+               l.standard_note AS standardNote
+        FROM water_test_items i
+        LEFT JOIN water_quality_limits l ON l.item_code = i.code
+          AND l.boiler_type = 'steam'
+          AND l.sample_type = 'boiler_water'
+          AND l.enabled = 1
+        WHERE i.enabled = 1
+        ORDER BY i.priority
+        """
+    )
+    return [row_to_dict(row) for row in rows]
+
+
+def judge_item_status(value: str, standard_min, standard_max) -> str:
+    number = parse_number(value)
+    if number is None:
+        return "warning"
+    if standard_min is not None and number < float(standard_min):
+        return "warning"
+    if standard_max is not None and number > float(standard_max):
+        return "warning"
+    return "normal"
+
+
+def decimal_to_number(value):
+    return float(value) if value is not None else None
+
+
+def inspection_result_payload(inspection_id: int, conn=None) -> dict:
     sample_values = {
-        "ph": ("8.2", "", "warning"),
-        "phosphate": ("8", "mg/L", "warning"),
-        "sulfite": ("18", "mg/L", "normal"),
-        "alkalinity": ("22", "mmol/L", "normal"),
-        "chloride": ("320", "mg/L", "warning"),
-        "hardness": ("0.05", "mmol/L", "warning"),
+        "ph": "8.2",
+        "phosphate": "8",
+        "sulfite": "18",
+        "alkalinity": "22",
+        "chloride": "320",
+        "hardness": "0.05",
     }
+    templates = get_water_test_templates(conn) if conn else [
+        {
+            **item,
+            "standardMin": next((limit["min"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), None),
+            "standardMax": next((limit["max"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), None),
+            "unit": next((limit["unit"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), ""),
+            "normalRange": item["normalRange"],
+            "standardSource": STANDARD_SOURCE,
+            "standardNote": STANDARD_NOTE,
+        }
+        for item in WATER_TEST_ITEMS
+    ]
     items = []
-    for template in WATER_TEST_ITEMS:
-        value, unit, status = sample_values[template["code"]]
+    for template in templates:
+        value = sample_values[template["code"]]
+        standard_min = decimal_to_number(template.get("standardMin"))
+        standard_max = decimal_to_number(template.get("standardMax"))
+        status = judge_item_status(value, standard_min, standard_max)
         items.append(
             {
                 "code": template["code"],
                 "name": template["name"],
                 "value": value,
-                "unit": unit,
+                "unit": template.get("unit") or "",
                 "priority": template["priority"],
                 "method": template["method"],
                 "status": status,
                 "normalRange": template["normalRange"],
+                "standardMin": standard_min,
+                "standardMax": standard_max,
+                "standardSource": template.get("standardSource") or STANDARD_SOURCE,
+                "standardNote": template.get("standardNote") or STANDARD_NOTE,
                 "meaning": template["meaning"],
                 "maintenance": template["maintenance"],
             }
@@ -1352,8 +1509,8 @@ def get_upload(filename: str):
 
 @app.post("/inspections/recognize")
 def recognize(req: RecognizeReq):
-    result = inspection_result_payload(req.inspectionId)
     with db() as conn:
+        result = inspection_result_payload(req.inspectionId, conn)
         cur = conn.execute(
             """
             UPDATE inspections

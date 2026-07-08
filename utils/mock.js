@@ -24,9 +24,12 @@ const mockMaterialPack = { id: 5001, code: 'BW-202607-000128', type: '基础版'
 const mockResult = {
   riskLevel: 'warning',
   items: [
-    { itemName: 'pH', value: '9.2', normalRange: '10.0-12.0', abnormal: true },
-    { itemName: '总硬度', value: '0.12', normalRange: '≤0.03', abnormal: true },
-    { itemName: '磷酸根', value: '8', normalRange: '20-40', abnormal: true }
+    { itemName: 'pH', value: '8.2', normalRange: '8.5-10.5', abnormal: true },
+    { itemName: '磷酸根', value: '8', normalRange: '10-30 mg/L', abnormal: true },
+    { itemName: '亚硫酸根', value: '18', normalRange: '10-30 mg/L', abnormal: false },
+    { itemName: '总碱度', value: '22', normalRange: '6-26 mmol/L', abnormal: false },
+    { itemName: '氯离子', value: '320', normalRange: '≤300 mg/L', abnormal: true },
+    { itemName: '硬度', value: '0.05', normalRange: '≤0.03 mmol/L', abnormal: true }
   ],
   diagnosis: [
     { title: '结垢风险预警', reason: '硬度超标且磷酸根偏低，疑似软化器失效或加药不足', advice: '检查软化器、补加药剂，2小时后复测' }

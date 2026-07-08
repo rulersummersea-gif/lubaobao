@@ -71,6 +71,25 @@ CREATE TABLE IF NOT EXISTS water_test_items (
   KEY idx_water_items_priority (priority)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS water_quality_limits (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  item_code VARCHAR(64) NOT NULL,
+  boiler_type VARCHAR(32) NOT NULL DEFAULT 'steam',
+  sample_type VARCHAR(32) NOT NULL DEFAULT 'boiler_water',
+  pressure_min_mpa DECIMAL(8,3) NULL,
+  pressure_max_mpa DECIMAL(8,3) NULL,
+  min_value DECIMAL(12,4) NULL,
+  max_value DECIMAL(12,4) NULL,
+  unit VARCHAR(32) NULL,
+  display_range VARCHAR(64) NULL,
+  standard_source VARCHAR(128) NULL,
+  standard_note VARCHAR(512) NULL,
+  enabled TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL,
+  UNIQUE KEY uk_water_limit_scope (item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa),
+  KEY idx_water_limits_item (item_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS inspections (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   enterprise_id BIGINT NOT NULL,
@@ -138,6 +157,26 @@ ON DUPLICATE KEY UPDATE
   normal_range = VALUES(normal_range),
   meaning = VALUES(meaning),
   maintenance = VALUES(maintenance),
+  enabled = 1;
+
+INSERT INTO water_quality_limits(
+  item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa,
+  min_value, max_value, unit, display_range, standard_source, standard_note, enabled, created_at
+)
+VALUES
+  ('ph', 'steam', 'boiler_water', 0, 3.8, 8.5, 10.5, '', '8.5-10.5', 'GB/T 1576 工业锅炉水质', '工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。', 1, NOW()),
+  ('phosphate', 'steam', 'boiler_water', 0, 3.8, 10, 30, 'mg/L', '10-30 mg/L', 'GB/T 1576 工业锅炉水质', '工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。', 1, NOW()),
+  ('sulfite', 'steam', 'boiler_water', 0, 3.8, 10, 30, 'mg/L', '10-30 mg/L', 'GB/T 1576 工业锅炉水质', '工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。', 1, NOW()),
+  ('alkalinity', 'steam', 'boiler_water', 0, 3.8, 6, 26, 'mmol/L', '6-26 mmol/L', 'GB/T 1576 工业锅炉水质', '工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。', 1, NOW()),
+  ('chloride', 'steam', 'boiler_water', 0, 3.8, NULL, 300, 'mg/L', '≤300 mg/L', 'GB/T 1576 工业锅炉水质', '工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。', 1, NOW()),
+  ('hardness', 'steam', 'boiler_water', 0, 3.8, NULL, 0.03, 'mmol/L', '≤0.03 mmol/L', 'GB/T 1576 工业锅炉水质', '工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。', 1, NOW())
+ON DUPLICATE KEY UPDATE
+  min_value = VALUES(min_value),
+  max_value = VALUES(max_value),
+  unit = VALUES(unit),
+  display_range = VALUES(display_range),
+  standard_source = VALUES(standard_source),
+  standard_note = VALUES(standard_note),
   enabled = 1;
 
 -- 后台用户由应用启动时自动写入，密码使用 PBKDF2-SHA256 加密保存。

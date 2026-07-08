@@ -12,6 +12,7 @@
           <view>{{item.priority}}. {{item.name}}</view>
           <view wx:if="{{item.method}}" class="sub">工具：{{item.method}}</view>
           <view wx:if="{{item.normalRange}}" class="sub">正常范围：{{item.normalRange}}</view>
+          <view wx:if="{{item.standardSource}}" class="sub">依据：{{item.standardSource}}</view>
           <view wx:if="{{item.meaning}}" class="sub">意义：{{item.meaning}}</view>
           <view wx:if="{{item.maintenance}}" class="sub">维护：{{item.maintenance}}</view>
         </view>

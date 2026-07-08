@@ -137,6 +137,27 @@ CREATE TABLE IF NOT EXISTS water_test_item (
   KEY idx_water_test_item_priority (priority)
 ) ENGINE=InnoDB;
 
+-- 锅水检测标准限值（按锅炉类型、样品类型、压力段配置）
+CREATE TABLE IF NOT EXISTS water_quality_limit (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  item_code VARCHAR(64) NOT NULL,
+  boiler_type VARCHAR(32) NOT NULL DEFAULT 'steam',
+  sample_type VARCHAR(32) NOT NULL DEFAULT 'boiler_water',
+  pressure_min_mpa DECIMAL(8,3) NULL,
+  pressure_max_mpa DECIMAL(8,3) NULL,
+  min_value DECIMAL(12,4) NULL,
+  max_value DECIMAL(12,4) NULL,
+  unit VARCHAR(32) NULL,
+  display_range VARCHAR(64) NULL,
+  standard_source VARCHAR(128) NULL,
+  standard_note VARCHAR(512) NULL,
+  enabled TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_water_quality_limit_scope (item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa),
+  KEY idx_water_quality_limit_item (item_code)
+) ENGINE=InnoDB;
+
 -- 检测项明细
 CREATE TABLE IF NOT EXISTS inspection_item (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,

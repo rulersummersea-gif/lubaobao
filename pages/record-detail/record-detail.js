@@ -29,6 +29,8 @@ Page({
         value: `${item.value || '-'}${item.unit ? ' ' + item.unit : ''}`,
         method: item.method || '',
         normalRange: item.normalRange || '',
+        standardSource: item.standardSource || '',
+        standardNote: item.standardNote || '',
         meaning: item.meaning || '',
         maintenance: item.maintenance || '',
         priority: item.priority || '',

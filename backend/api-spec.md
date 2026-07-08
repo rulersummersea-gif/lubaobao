@@ -154,8 +154,9 @@
 5. 氯离子：氯离子试纸/滴定包
 6. 硬度：硬度试纸
 
-每个检测项包含 `priority`、`method`、`normalRange`、`meaning`、`maintenance`，用于小程序和后台展示维护指导。
-数据库同步维护 `water_test_items` 检测项目模板表，以及 `inspection_test_results` 单次检测结果明细表。
+每个检测项包含 `priority`、`method`、`normalRange`、`standardMin`、`standardMax`、`standardSource`、`meaning`、`maintenance`，用于小程序和后台展示维护指导。
+数据库同步维护 `water_test_items` 检测项目模板表、`water_quality_limits` 标准限值表，以及 `inspection_test_results` 单次检测结果明细表。
+当前灰测标准来源标记为 `GB/T 1576 工业锅炉水质`，范围按工业蒸汽锅炉锅水/炉水低压段配置；正式上线前需结合锅炉额定压力、补给水处理方式和最新国标原文复核。
 
 ### GET `/inspections/result?inspectionId=9001`
 
