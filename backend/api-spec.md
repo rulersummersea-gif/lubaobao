@@ -122,8 +122,21 @@
 ### GET `/reports/monthly?enterpriseId=1&month=2026-07`
 
 ## 6. 用户权限
+### POST `/auth/admin-login`
+后台账号登录，账号来自数据库 `users` 表，密码使用 PBKDF2-SHA256 加密保存。
+
+灰测默认账号：
+- 平台管理员：`admin / Admin@123`
+- 企业管理员：`entadmin / Ent@123`
+- 巡检员：`inspector / Inspect@123`
+
 ### GET `/users`
-返回当前灰测内置账号列表。
+返回数据库用户列表，需要 `platform_admin` 或 `enterprise_admin`。
+
+### 当前角色权限
+- `platform_admin`：可查看用户、创建锅炉、创建/作废/解绑检测包。
+- `enterprise_admin`：可管理本企业用户可见范围、创建本企业锅炉、创建/作废/解绑本企业检测包。
+- `inspector`：保留小程序巡检流程权限，可登录、选锅炉、校验/激活检测包、创建巡检、上传图片、识别、提交和查看记录。
 
 ---
 

@@ -60,6 +60,23 @@ CREATE TABLE IF NOT EXISTS detect_pack (
   KEY idx_pack_enterprise (enterprise_id)
 ) ENGINE=InnoDB;
 
+-- 后台用户与角色
+CREATE TABLE IF NOT EXISTS admin_user (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  username VARCHAR(64) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  name VARCHAR(64) NOT NULL,
+  role VARCHAR(32) NOT NULL COMMENT 'platform_admin/enterprise_admin/inspector',
+  enterprise_id BIGINT NOT NULL,
+  status TINYINT NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_admin_user_enterprise FOREIGN KEY (enterprise_id) REFERENCES enterprise(id),
+  UNIQUE KEY uk_admin_user_username (username),
+  KEY idx_admin_user_enterprise (enterprise_id),
+  KEY idx_admin_user_role (role)
+) ENGINE=InnoDB;
+
 -- 锅炉-检测包绑定关系
 CREATE TABLE IF NOT EXISTS boiler_pack_binding (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,

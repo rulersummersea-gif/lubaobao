@@ -11,6 +11,7 @@ services:
       MYSQL_USER: lubaobao
       MYSQL_PASSWORD: lubaobao_dev_password
       MYSQL_DATABASE: lubaobao_dev
+      AUTH_SECRET: ${AUTH_SECRET:-lubaobao-dev-auth-secret}
       LUBAOBAO_DB: /data/lubaobao.sqlite3
       LUBAOBAO_UPLOAD_DIR: /data/uploads
     volumes:

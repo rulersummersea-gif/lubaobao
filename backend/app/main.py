@@ -1,6 +1,9 @@
 import base64
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +23,8 @@ MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
 MYSQL_USER = os.getenv("MYSQL_USER", "lubaobao")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "lubaobao")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "lubaobao")
+AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret-change-me")
+PASSWORD_ITERATIONS = 200000
 
 app = FastAPI(title="Lubaobao API", version="0.5.0-complete-flow")
 app.add_middleware(
@@ -110,9 +115,20 @@ def is_integrity_error(exc: Exception) -> bool:
     return isinstance(exc, sqlite3.IntegrityError) or exc.__class__.__name__ == "IntegrityError"
 
 
+def encode_token_part(payload: bytes) -> str:
+    return base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
+
+
+def decode_token_part(value: str) -> bytes:
+    padded = value + "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(padded.encode("utf-8"))
+
+
 def make_token(payload: dict) -> str:
     raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+    body = encode_token_part(raw)
+    signature = hmac.new(AUTH_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
+    return f"{body}.{encode_token_part(signature)}"
 
 
 def parse_token(authorization: Optional[str]) -> dict:
@@ -120,10 +136,85 @@ def parse_token(authorization: Optional[str]) -> dict:
         return {}
     token = authorization.replace("Bearer ", "").strip()
     try:
-        padded = token + "=" * (-len(token) % 4)
-        return json.loads(base64.urlsafe_b64decode(padded.encode("utf-8")))
+        if "." in token:
+            body, signature = token.rsplit(".", 1)
+            expected = hmac.new(AUTH_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
+            actual = decode_token_part(signature)
+            if not hmac.compare_digest(actual, expected):
+                return {}
+            return json.loads(decode_token_part(body))
+        return json.loads(decode_token_part(token))
     except Exception:
         return {}
+
+
+def password_hash(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), PASSWORD_ITERATIONS)
+    return f"pbkdf2_sha256${PASSWORD_ITERATIONS}${salt}${digest.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algorithm, iterations, salt, digest = stored.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(iterations))
+        return hmac.compare_digest(actual.hex(), digest)
+    except Exception:
+        return False
+
+
+def get_current_user(authorization: Optional[str]) -> dict:
+    user = parse_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="未登录")
+    return user
+
+
+def require_roles(authorization: Optional[str], allowed_roles: tuple[str, ...]) -> dict:
+    user = get_current_user(authorization)
+    if user.get("role") not in allowed_roles:
+        raise HTTPException(status_code=403, detail="无权限")
+    return user
+
+
+def ensure_enterprise_scope(user: dict, enterprise_id: int) -> None:
+    if user.get("role") == "enterprise_admin" and user.get("enterpriseId") != enterprise_id:
+        raise HTTPException(status_code=403, detail="无权管理其他企业数据")
+
+
+def user_response(row) -> dict:
+    user = row_to_dict(row)
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "name": user["name"],
+        "role": user["role"],
+        "enterpriseId": user["enterprise_id"],
+        "status": user["status"],
+    }
+
+
+def seed_users(conn) -> None:
+    users = [
+        ("admin", "Admin@123", "平台管理员", "platform_admin", 1),
+        ("entadmin", "Ent@123", "企业管理员", "enterprise_admin", 1),
+        ("inspector", "Inspect@123", "巡检员", "inspector", 1),
+    ]
+    insert_sql = (
+        """
+        INSERT IGNORE INTO users(username, password_hash, name, role, enterprise_id, status, created_at)
+        VALUES(?, ?, ?, ?, ?, 'active', ?)
+        """
+        if DB_DRIVER == "mysql"
+        else """
+        INSERT OR IGNORE INTO users(username, password_hash, name, role, enterprise_id, status, created_at)
+        VALUES(?, ?, ?, ?, ?, 'active', ?)
+        """
+    )
+    for username, password, name, role, enterprise_id in users:
+        conn.execute(insert_sql, (username, password_hash(password), name, role, enterprise_id, now()))
 
 
 def seed_data(conn) -> None:
@@ -133,6 +224,7 @@ def seed_data(conn) -> None:
         else "INSERT OR IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)",
         (now(),),
     )
+    seed_users(conn)
     conn.execute(
         """
         INSERT IGNORE INTO boilers(
@@ -210,6 +302,16 @@ def init_sqlite() -> None:
               created_at TEXT NOT NULL,
               activated_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS users (
+              id INTEGER PRIMARY KEY,
+              username TEXT NOT NULL UNIQUE,
+              password_hash TEXT NOT NULL,
+              name TEXT NOT NULL,
+              role TEXT NOT NULL,
+              enterprise_id INTEGER NOT NULL DEFAULT 1,
+              status TEXT NOT NULL DEFAULT 'active',
+              created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS inspections (
               id INTEGER PRIMARY KEY,
               enterprise_id INTEGER NOT NULL,
@@ -275,6 +377,18 @@ def init_mysql() -> None:
               activated_at DATETIME NULL,
               KEY idx_packs_enterprise (enterprise_id),
               KEY idx_packs_boiler (boiler_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS users (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              username VARCHAR(64) NOT NULL UNIQUE,
+              password_hash VARCHAR(255) NOT NULL,
+              name VARCHAR(64) NOT NULL,
+              role VARCHAR(32) NOT NULL,
+              enterprise_id BIGINT NOT NULL DEFAULT 1,
+              status VARCHAR(20) NOT NULL DEFAULT 'active',
+              created_at DATETIME NOT NULL,
+              KEY idx_users_enterprise (enterprise_id),
+              KEY idx_users_role (role)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             CREATE TABLE IF NOT EXISTS inspections (
               id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -397,33 +511,46 @@ def wx_login(req: WxLoginReq):
 
 @app.post("/auth/admin-login")
 def admin_login(req: AdminLoginReq):
-    accounts = {
-        "admin": ("Admin@123", "platform_admin", "平台管理员"),
-        "entadmin": ("Ent@123", "enterprise_admin", "企业管理员"),
-        "inspector": ("Inspect@123", "inspector", "巡检员"),
-    }
-    matched = accounts.get(req.username)
-    if not matched or matched[0] != req.password:
+    with db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, username, password_hash, name, role, enterprise_id, status
+            FROM users WHERE username = ?
+            """,
+            (req.username,),
+        ).fetchone()
+    if not row:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
-    user = {"id": 7477, "username": req.username, "name": matched[2], "role": matched[1], "enterpriseId": 1}
+    user_row = row_to_dict(row)
+    if user_row["status"] != "active" or not verify_password(req.password, user_row["password_hash"]):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    user = user_response(row)
     return {"token": make_token(user), "user": user}
 
 
 @app.get("/auth/me")
 def auth_me(authorization: Optional[str] = Header(None)):
-    user = parse_token(authorization)
-    if not user:
-        raise HTTPException(status_code=401, detail="未登录")
-    return {"user": user}
+    return {"user": get_current_user(authorization)}
 
 
 @app.get("/users")
-def users():
-    return [
-        {"id": 7477, "username": "admin", "name": "平台管理员", "role": "platform_admin", "enterpriseId": 1},
-        {"id": 7478, "username": "entadmin", "name": "企业管理员", "role": "enterprise_admin", "enterpriseId": 1},
-        {"id": 7479, "username": "inspector", "name": "巡检员", "role": "inspector", "enterpriseId": 1},
-    ]
+def users(authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    filters = []
+    params = []
+    if current_user["role"] == "enterprise_admin":
+        filters.append("enterprise_id = ?")
+        params.append(current_user["enterpriseId"])
+    where_clause = ("WHERE " + " AND ".join(filters)) if filters else ""
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, username, name, role, enterprise_id, status
+            FROM users {where_clause} ORDER BY id
+            """,
+            tuple(params),
+        )
+        return [user_response(row) for row in rows]
 
 
 @app.get("/enterprises")
@@ -447,7 +574,9 @@ def boilers(enterpriseId: int = 1):
 
 
 @app.post("/boilers")
-def create_boiler(req: BoilerCreateReq):
+def create_boiler(req: BoilerCreateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    ensure_enterprise_scope(current_user, req.enterpriseId)
     with db() as conn:
         cur = conn.execute(
             """
@@ -492,7 +621,9 @@ def list_packs(enterpriseId: int = 1):
 
 
 @app.post("/material-packs")
-def create_pack(req: PackCreateReq):
+def create_pack(req: PackCreateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    ensure_enterprise_scope(current_user, req.enterpriseId)
     with db() as conn:
         try:
             cur = conn.execute(
@@ -549,7 +680,8 @@ def activate_pack(req: PackActivateReq):
 
 
 @app.post("/material-packs/invalidate")
-def invalidate_pack(req: PackCodeReq):
+def invalidate_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
+    require_roles(authorization, ("platform_admin", "enterprise_admin"))
     with db() as conn:
         cur = conn.execute("UPDATE material_packs SET status = 'invalid' WHERE code = ?", (req.code,))
         if cur.rowcount == 0:
@@ -558,7 +690,8 @@ def invalidate_pack(req: PackCodeReq):
 
 
 @app.post("/material-packs/unbind")
-def unbind_pack(req: PackCodeReq):
+def unbind_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
+    require_roles(authorization, ("platform_admin", "enterprise_admin"))
     with db() as conn:
         cur = conn.execute(
             "UPDATE material_packs SET boiler_id = NULL, status = 'activated' WHERE code = ?",

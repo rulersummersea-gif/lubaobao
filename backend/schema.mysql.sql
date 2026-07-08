@@ -44,6 +44,19 @@ CREATE TABLE IF NOT EXISTS material_packs (
   KEY idx_packs_boiler (boiler_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  username VARCHAR(64) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  name VARCHAR(64) NOT NULL,
+  role VARCHAR(32) NOT NULL,
+  enterprise_id BIGINT NOT NULL DEFAULT 1,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL,
+  KEY idx_users_enterprise (enterprise_id),
+  KEY idx_users_role (role)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS inspections (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   enterprise_id BIGINT NOT NULL,
@@ -77,3 +90,5 @@ INSERT IGNORE INTO boilers(
 
 INSERT IGNORE INTO material_packs(id, enterprise_id, code, type, status, boiler_id, expire_at, created_at, activated_at)
 VALUES (9001, 1, 'PACK-001', '基础版', 'activated', 1001, '2027-12-31', NOW(), NOW());
+
+-- 后台用户由应用启动时自动写入，密码使用 PBKDF2-SHA256 加密保存。
