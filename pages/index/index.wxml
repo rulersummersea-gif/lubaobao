@@ -72,6 +72,6 @@
 
   <view class="card">
     <view class="section-title">最近巡检摘要</view>
-    <view class="sub">最近一次结果：pH、磷酸根、电导率/TDS预警，建议调整加药并加强排污后复测。</view>
+    <view class="sub">最近一次结果：pH、磷酸根、氯离子、硬度预警，建议调整加药、检查软水器并加强排污后复测。</view>
   </view>
 </view>

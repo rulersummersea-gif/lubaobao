@@ -120,13 +120,37 @@ CREATE TABLE IF NOT EXISTS inspection (
   KEY idx_inspection_enterprise_time (enterprise_id, created_at)
 ) ENGINE=InnoDB;
 
+-- 锅水检测项目模板（当前第一版 6 项）
+CREATE TABLE IF NOT EXISTS water_test_item (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  item_code VARCHAR(64) NOT NULL,
+  item_name VARCHAR(64) NOT NULL,
+  priority INT NOT NULL,
+  method VARCHAR(64) NULL,
+  normal_range VARCHAR(64) NULL,
+  meaning VARCHAR(255) NULL,
+  maintenance VARCHAR(512) NULL,
+  enabled TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_water_test_item_code (item_code),
+  KEY idx_water_test_item_priority (priority)
+) ENGINE=InnoDB;
+
 -- 检测项明细
 CREATE TABLE IF NOT EXISTS inspection_item (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   inspection_id BIGINT NOT NULL,
+  item_code VARCHAR(64) NULL,
   item_name VARCHAR(64) NOT NULL,
+  priority INT NULL,
   value_text VARCHAR(64) NOT NULL,
+  unit VARCHAR(32) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'normal',
   normal_range VARCHAR(64) NULL,
+  method VARCHAR(64) NULL,
+  meaning VARCHAR(255) NULL,
+  maintenance VARCHAR(512) NULL,
   abnormal_flag TINYINT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_item_inspection FOREIGN KEY (inspection_id) REFERENCES inspection(id),

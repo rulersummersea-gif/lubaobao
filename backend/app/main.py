@@ -115,6 +115,64 @@ def is_integrity_error(exc: Exception) -> bool:
     return isinstance(exc, sqlite3.IntegrityError) or exc.__class__.__name__ == "IntegrityError"
 
 
+WATER_TEST_ITEMS = [
+    {
+        "code": "ph",
+        "name": "pH",
+        "priority": 1,
+        "method": "pH试纸",
+        "normalRange": "8.5-10.5",
+        "meaning": "判断锅水酸碱性，是腐蚀和加药控制的基础指标。",
+        "maintenance": "偏低时易腐蚀，建议复测并适当补加碱性药剂；偏高时加强排污，避免碱腐蚀和汽水共腾。",
+    },
+    {
+        "code": "phosphate",
+        "name": "磷酸根",
+        "priority": 2,
+        "method": "磷酸根试纸",
+        "normalRange": "10-30 mg/L",
+        "meaning": "判断防垢药剂余量，关系到钙镁离子能否形成可排出的泥渣。",
+        "maintenance": "偏低说明防垢能力不足，建议补加磷酸盐药剂并观察排污泥渣；偏高则减少加药并加强排污。",
+    },
+    {
+        "code": "sulfite",
+        "name": "亚硫酸根",
+        "priority": 3,
+        "method": "亚硫酸根试纸",
+        "normalRange": "10-30 mg/L",
+        "meaning": "判断除氧剂余量，用于控制残余溶解氧造成的氧腐蚀。",
+        "maintenance": "偏低时检查除氧剂投加和除氧设备；偏高时减少投药，避免盐分增加和排污负担上升。",
+    },
+    {
+        "code": "alkalinity",
+        "name": "总碱度",
+        "priority": 4,
+        "method": "总碱度试纸",
+        "normalRange": "6-26 mmol/L",
+        "meaning": "反映锅水碱性物质总量，影响防腐、防垢和蒸汽品质。",
+        "maintenance": "偏低时保护性不足，偏高时易起泡和汽水共腾；根据结果调整加药量和排污频率。",
+    },
+    {
+        "code": "chloride",
+        "name": "氯离子",
+        "priority": 5,
+        "method": "氯离子试纸/滴定包",
+        "normalRange": "≤300 mg/L",
+        "meaning": "用于判断浓缩程度和点蚀风险，氯离子过高会加剧局部腐蚀。",
+        "maintenance": "偏高时优先加强排污，检查补水来源和软化/除盐设备，必要时缩短复测周期。",
+    },
+    {
+        "code": "hardness",
+        "name": "硬度",
+        "priority": 6,
+        "method": "硬度试纸",
+        "normalRange": "≤0.03 mmol/L",
+        "meaning": "判断锅水中钙镁离子残留，直接反映结垢风险和软化处理效果。",
+        "maintenance": "偏高时建议检查软水器、补水硬度和排污情况，必要时停炉检查受热面沉积。",
+    },
+]
+
+
 def encode_token_part(payload: bytes) -> str:
     return base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
 
@@ -226,6 +284,50 @@ def seed_users(conn) -> None:
         conn.execute(insert_sql, (username, password_hash(password), name, role, enterprise_id, now()))
 
 
+def seed_water_test_items(conn) -> None:
+    insert_sql = (
+        """
+        INSERT INTO water_test_items(code, name, priority, method, normal_range, meaning, maintenance, enabled, created_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?)
+        ON DUPLICATE KEY UPDATE
+          name = VALUES(name),
+          priority = VALUES(priority),
+          method = VALUES(method),
+          normal_range = VALUES(normal_range),
+          meaning = VALUES(meaning),
+          maintenance = VALUES(maintenance),
+          enabled = 1
+        """
+        if DB_DRIVER == "mysql"
+        else """
+        INSERT INTO water_test_items(code, name, priority, method, normal_range, meaning, maintenance, enabled, created_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?)
+        ON CONFLICT(code) DO UPDATE SET
+          name = excluded.name,
+          priority = excluded.priority,
+          method = excluded.method,
+          normal_range = excluded.normal_range,
+          meaning = excluded.meaning,
+          maintenance = excluded.maintenance,
+          enabled = 1
+        """
+    )
+    for item in WATER_TEST_ITEMS:
+        conn.execute(
+            insert_sql,
+            (
+                item["code"],
+                item["name"],
+                item["priority"],
+                item["method"],
+                item["normalRange"],
+                item["meaning"],
+                item["maintenance"],
+                now(),
+            ),
+        )
+
+
 def seed_data(conn) -> None:
     conn.execute(
         "INSERT IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)"
@@ -234,6 +336,7 @@ def seed_data(conn) -> None:
         (now(),),
     )
     seed_users(conn)
+    seed_water_test_items(conn)
     conn.execute(
         """
         INSERT IGNORE INTO boilers(
@@ -321,6 +424,18 @@ def init_sqlite() -> None:
               status TEXT NOT NULL DEFAULT 'active',
               created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS water_test_items (
+              id INTEGER PRIMARY KEY,
+              code TEXT NOT NULL UNIQUE,
+              name TEXT NOT NULL,
+              priority INTEGER NOT NULL,
+              method TEXT,
+              normal_range TEXT,
+              meaning TEXT,
+              maintenance TEXT,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS inspections (
               id INTEGER PRIMARY KEY,
               enterprise_id INTEGER NOT NULL,
@@ -335,6 +450,22 @@ def init_sqlite() -> None:
               remark TEXT,
               created_at TEXT NOT NULL,
               submitted_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS inspection_test_results (
+              id INTEGER PRIMARY KEY,
+              inspection_id INTEGER NOT NULL,
+              item_code TEXT NOT NULL,
+              item_name TEXT NOT NULL,
+              priority INTEGER NOT NULL,
+              value_text TEXT,
+              unit TEXT,
+              status TEXT NOT NULL DEFAULT 'normal',
+              normal_range TEXT,
+              method TEXT,
+              meaning TEXT,
+              maintenance TEXT,
+              created_at TEXT NOT NULL,
+              UNIQUE(inspection_id, item_code)
             );
             """
         )
@@ -399,6 +530,19 @@ def init_mysql() -> None:
               KEY idx_users_enterprise (enterprise_id),
               KEY idx_users_role (role)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS water_test_items (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              code VARCHAR(64) NOT NULL UNIQUE,
+              name VARCHAR(64) NOT NULL,
+              priority INT NOT NULL,
+              method VARCHAR(64) NULL,
+              normal_range VARCHAR(64) NULL,
+              meaning VARCHAR(255) NULL,
+              maintenance VARCHAR(512) NULL,
+              enabled TINYINT NOT NULL DEFAULT 1,
+              created_at DATETIME NOT NULL,
+              KEY idx_water_items_priority (priority)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             CREATE TABLE IF NOT EXISTS inspections (
               id BIGINT PRIMARY KEY AUTO_INCREMENT,
               enterprise_id BIGINT NOT NULL,
@@ -415,6 +559,23 @@ def init_mysql() -> None:
               submitted_at DATETIME NULL,
               KEY idx_inspections_enterprise (enterprise_id),
               KEY idx_inspections_boiler (boiler_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS inspection_test_results (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              inspection_id BIGINT NOT NULL,
+              item_code VARCHAR(64) NOT NULL,
+              item_name VARCHAR(64) NOT NULL,
+              priority INT NOT NULL,
+              value_text VARCHAR(64) NULL,
+              unit VARCHAR(32) NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'normal',
+              normal_range VARCHAR(64) NULL,
+              method VARCHAR(64) NULL,
+              meaning VARCHAR(255) NULL,
+              maintenance VARCHAR(512) NULL,
+              created_at DATETIME NOT NULL,
+              UNIQUE KEY uk_inspection_item (inspection_id, item_code),
+              KEY idx_test_results_inspection (inspection_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
@@ -990,79 +1151,36 @@ def unbind_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
 
 
 def inspection_result_payload(inspection_id: int) -> dict:
-    items = [
-        {
-            "name": "pH",
-            "value": "8.2",
-            "unit": "",
-            "priority": 1,
-            "method": "pH试纸",
-            "status": "warning",
-            "normalRange": "8.5-10.5",
-            "meaning": "判断锅水酸碱性，是腐蚀和加药控制的基础指标。",
-            "maintenance": "偏低时易腐蚀，建议复测并适当补加碱性药剂；偏高时加强排污，避免碱腐蚀和汽水共腾。",
-        },
-        {
-            "name": "磷酸根",
-            "value": "8",
-            "unit": "mg/L",
-            "priority": 2,
-            "method": "磷酸根试纸",
-            "status": "warning",
-            "normalRange": "10-30 mg/L",
-            "meaning": "判断防垢药剂余量，关系到钙镁离子能否形成可排出的泥渣。",
-            "maintenance": "偏低说明防垢能力不足，建议补加磷酸盐药剂并观察排污泥渣；偏高则减少加药并加强排污。",
-        },
-        {
-            "name": "亚硫酸根",
-            "value": "18",
-            "unit": "mg/L",
-            "priority": 3,
-            "method": "亚硫酸根试纸",
-            "status": "normal",
-            "normalRange": "10-30 mg/L",
-            "meaning": "判断除氧剂余量，用于控制残余溶解氧造成的氧腐蚀。",
-            "maintenance": "偏低时检查除氧剂投加和除氧设备；偏高时减少投药，避免盐分增加和排污负担上升。",
-        },
-        {
-            "name": "总碱度",
-            "value": "22",
-            "unit": "mmol/L",
-            "priority": 4,
-            "method": "总碱度试纸",
-            "status": "normal",
-            "normalRange": "6-26 mmol/L",
-            "meaning": "反映锅水碱性物质总量，影响防腐、防垢和蒸汽品质。",
-            "maintenance": "偏低时保护性不足，偏高时易起泡和汽水共腾；根据结果调整加药量和排污频率。",
-        },
-        {
-            "name": "电导率/TDS",
-            "value": "4200",
-            "unit": "μS/cm",
-            "priority": 5,
-            "method": "电导率笔/TDS笔",
-            "status": "warning",
-            "normalRange": "≤4000 μS/cm",
-            "meaning": "反映锅水溶解盐类总量，是判断浓缩倍数和排污是否足够的直观指标。",
-            "maintenance": "偏高说明浓缩严重，建议增加连续排污或定期排污，并复查补水水质。",
-        },
-        {
-            "name": "氯离子",
-            "value": "280",
-            "unit": "mg/L",
-            "priority": 6,
-            "method": "氯离子试纸/滴定包",
-            "status": "normal",
-            "normalRange": "≤300 mg/L",
-            "meaning": "用于判断浓缩程度和点蚀风险，氯离子过高会加剧局部腐蚀。",
-            "maintenance": "偏高时优先加强排污，检查补水来源和软化/除盐设备，必要时缩短复测周期。",
-        },
-    ]
+    sample_values = {
+        "ph": ("8.2", "", "warning"),
+        "phosphate": ("8", "mg/L", "warning"),
+        "sulfite": ("18", "mg/L", "normal"),
+        "alkalinity": ("22", "mmol/L", "normal"),
+        "chloride": ("320", "mg/L", "warning"),
+        "hardness": ("0.05", "mmol/L", "warning"),
+    }
+    items = []
+    for template in WATER_TEST_ITEMS:
+        value, unit, status = sample_values[template["code"]]
+        items.append(
+            {
+                "code": template["code"],
+                "name": template["name"],
+                "value": value,
+                "unit": unit,
+                "priority": template["priority"],
+                "method": template["method"],
+                "status": status,
+                "normalRange": template["normalRange"],
+                "meaning": template["meaning"],
+                "maintenance": template["maintenance"],
+            }
+        )
     return {
         "inspectionId": inspection_id,
-        "score": 78,
+        "score": 74,
         "status": "done",
-        "summary": "锅水检测包含6项：pH、磷酸根、电导率/TDS存在预警，建议调整加药并加强排污后复测。",
+        "summary": "锅水检测包含6项：pH、磷酸根、氯离子、硬度存在预警，建议调整加药、检查软水器并加强排污后复测。",
         "items": items,
         "diagnosis": [
             {
@@ -1071,9 +1189,14 @@ def inspection_result_payload(inspection_id: int) -> dict:
                 "advice": "按现场药剂方案小幅补加磷酸盐药剂，2小时后复测磷酸根和pH。",
             },
             {
-                "title": "加强排污",
-                "reason": "电导率/TDS偏高，说明锅水浓缩程度偏高。",
-                "advice": "增加连续排污或安排定期排污，排污后复测电导率/TDS和氯离子。",
+                "title": "检查软水器",
+                "reason": "硬度偏高，说明钙镁离子残留偏多，存在结垢风险。",
+                "advice": "检查软水器再生盐、树脂状态和补水硬度，必要时安排停炉检查受热面沉积。",
+            },
+            {
+                "title": "加强排污并复测氯离子",
+                "reason": "氯离子偏高，提示浓缩程度偏高且点蚀风险增加。",
+                "advice": "增加连续排污或安排定期排污，排污后复测氯离子和总碱度。",
             },
             {
                 "title": "复核碱度控制",
@@ -1082,6 +1205,33 @@ def inspection_result_payload(inspection_id: int) -> dict:
             },
         ],
     }
+
+
+def save_inspection_test_results(conn, inspection_id: int, items: list[dict]) -> None:
+    conn.execute("DELETE FROM inspection_test_results WHERE inspection_id = ?", (inspection_id,))
+    for item in items:
+        conn.execute(
+            """
+            INSERT INTO inspection_test_results(
+              inspection_id, item_code, item_name, priority, value_text, unit, status,
+              normal_range, method, meaning, maintenance, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                inspection_id,
+                item["code"],
+                item["name"],
+                item["priority"],
+                item["value"],
+                item.get("unit", ""),
+                item["status"],
+                item["normalRange"],
+                item["method"],
+                item["meaning"],
+                item["maintenance"],
+                now(),
+            ),
+        )
 
 
 @app.post("/inspections")
@@ -1156,6 +1306,7 @@ def recognize(req: RecognizeReq):
         )
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="inspection not found")
+        save_inspection_test_results(conn, req.inspectionId, result["items"])
     return {"inspectionId": req.inspectionId, "status": "done", "result": result}
 
 
