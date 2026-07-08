@@ -1,0 +1,61 @@
+services:
+  lubaobao-local-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.local
+    container_name: lubaobao-local-api
+    ports:
+      - "127.0.0.1:28080:18080"
+    environment:
+      DB_DRIVER: mysql
+      MYSQL_HOST: lubaobao-local-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: lubaobao
+      MYSQL_PASSWORD: lubaobao_local_password
+      MYSQL_DATABASE: lubaobao_local
+      AUTH_SECRET: lubaobao-local-auth-secret
+      LUBAOBAO_UPLOAD_DIR: /data/uploads
+    volumes:
+      - lubaobao-local-uploads:/data/uploads
+    depends_on:
+      lubaobao-local-mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lubaobao-local-mysql:
+    image: mysql:8.0
+    container_name: lubaobao-local-mysql
+    ports:
+      - "127.0.0.1:23306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: lubaobao_local_root_password
+      MYSQL_DATABASE: lubaobao_local
+      MYSQL_USER: lubaobao
+      MYSQL_PASSWORD: lubaobao_local_password
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - lubaobao-local-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ulubaobao", "-plubaobao_local_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  lubaobao-local-admin:
+    image: nginx:1.31-alpine
+    container_name: lubaobao-local-admin
+    ports:
+      - "127.0.0.1:28081:80"
+    volumes:
+      - ./admin-web/index.html:/usr/share/nginx/html/index.html:ro
+      - ./admin-web/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - lubaobao-local-api
+    restart: unless-stopped
+
+volumes:
+  lubaobao-local-mysql-data:
+  lubaobao-local-uploads:

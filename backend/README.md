@@ -58,6 +58,26 @@ MYSQL_PASSWORD=lubaobao_dev_password
 
 如果只想用 SQLite 跑 API，可以不用 compose，直接执行本地启动命令。
 
+## 本地后台测试环境
+
+从项目根目录启动本地测试环境：
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+这套环境使用独立容器名、端口和数据卷：
+
+```text
+后台：http://127.0.0.1:28081/
+API：http://127.0.0.1:28080
+API 文档：http://127.0.0.1:28080/docs
+MySQL：127.0.0.1:23306
+```
+
+后台页面默认 API 基地址是 `/api`，由本地 Nginx 代理到 `lubaobao-local-api`，所以不需要手动改成云主机地址。
+本地 API 镜像使用 `Dockerfile.local`，不影响云服务器部署使用的 `Dockerfile`。
+
 上线前安全要求：
 
 ```text
