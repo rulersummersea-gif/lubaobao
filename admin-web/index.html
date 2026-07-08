@@ -61,6 +61,7 @@
       <button data-tab="enterprises">企业管理</button>
       <button data-tab="packs">材料包管理</button>
       <button data-tab="boilers">锅炉管理</button>
+      <button data-tab="standards">检测标准</button>
       <button data-tab="inspections">巡检记录</button>
       <button data-tab="users">用户权限</button>
       <button data-tab="reports">月报中心</button>
@@ -165,6 +166,41 @@
       </div>
     </section>
 
+    <section id="standards" class="tab">
+      <div class="card">
+        <h2 id="standardFormTitle">编辑检测标准</h2>
+        <div class="row">
+          <input id="standardId" type="hidden">
+          <input id="standardItem" placeholder="检测项目" disabled>
+          <input id="standardMin" placeholder="下限，留空表示无下限">
+          <input id="standardMax" placeholder="上限，留空表示无上限">
+          <input id="standardUnit" placeholder="单位">
+          <input id="standardRange" placeholder="显示范围">
+          <input id="standardPressureMin" placeholder="压力下限MPa">
+          <input id="standardPressureMax" placeholder="压力上限MPa">
+          <select id="standardEnabled">
+            <option value="true">启用</option>
+            <option value="false">停用</option>
+          </select>
+          <input id="standardSource" placeholder="标准依据">
+          <input id="standardNote" placeholder="备注" style="min-width:320px">
+          <button id="saveStandardBtn">保存标准</button>
+          <button class="secondary" id="resetStandardFormBtn">清空</button>
+          <button class="warn" id="resetStandardsBtn">恢复默认标准</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">锅水检测标准</h2>
+          <button class="secondary" id="loadStandardsBtn">刷新标准</button>
+        </div>
+        <table>
+          <thead><tr><th>优先级</th><th>项目</th><th>范围</th><th>下限</th><th>上限</th><th>单位</th><th>压力段</th><th>依据</th><th>状态</th><th>更新</th><th>操作</th></tr></thead>
+          <tbody id="standardsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="inspections" class="tab">
       <div class="card">
         <div class="row">
@@ -243,6 +279,7 @@ const state = {
   enterprises: [],
   boilers: [],
   users: [],
+  standards: [],
 };
 
 function base() { return $('base').value.trim() || '/api'; }
@@ -263,6 +300,10 @@ function tag(status) {
 }
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+function inputNumber(id) {
+  const value = $(id).value.trim();
+  return value === '' ? null : Number(value);
 }
 function setWho() {
   $('who').textContent = state.user ? `${state.user.name || state.user.username} / ${state.user.role}` : '未登录';
@@ -452,6 +493,78 @@ async function saveBoiler() {
   await loadBoilers();
   await loadDashboard();
 }
+async function loadStandards() {
+  const standards = await api('/water-quality-limits');
+  state.standards = standards;
+  $('standardsBody').innerHTML = standards.map((item) => `
+    <tr>
+      <td>${esc(item.priority || '-')}</td>
+      <td>${esc(item.itemName)}</td>
+      <td>${esc(item.displayRange || '-')}</td>
+      <td>${item.minValue ?? '-'}</td>
+      <td>${item.maxValue ?? '-'}</td>
+      <td>${esc(item.unit || '-')}</td>
+      <td>${item.pressureMinMpa ?? '-'} - ${item.pressureMaxMpa ?? '-'} MPa</td>
+      <td>${esc(item.standardSource || '-')}</td>
+      <td>${tag(item.enabled ? 'active' : 'disabled')}</td>
+      <td>${esc(item.updatedAt || '-')}<br><span class="muted">${esc(item.updatedByName || '')}</span></td>
+      <td><button class="secondary" onclick="editStandard(${item.id})">编辑</button></td>
+    </tr>`).join('');
+}
+function resetStandardForm() {
+  $('standardId').value = '';
+  $('standardItem').value = '';
+  $('standardMin').value = '';
+  $('standardMax').value = '';
+  $('standardUnit').value = '';
+  $('standardRange').value = '';
+  $('standardPressureMin').value = '';
+  $('standardPressureMax').value = '';
+  $('standardEnabled').value = 'true';
+  $('standardSource').value = '';
+  $('standardNote').value = '';
+  $('standardFormTitle').textContent = '编辑检测标准';
+}
+function editStandard(id) {
+  const item = state.standards.find((standard) => standard.id === id);
+  if (!item) return;
+  $('standardId').value = item.id;
+  $('standardItem').value = `${item.priority || '-'} ${item.itemName}`;
+  $('standardMin').value = item.minValue ?? '';
+  $('standardMax').value = item.maxValue ?? '';
+  $('standardUnit').value = item.unit || '';
+  $('standardRange').value = item.displayRange || '';
+  $('standardPressureMin').value = item.pressureMinMpa ?? '';
+  $('standardPressureMax').value = item.pressureMaxMpa ?? '';
+  $('standardEnabled').value = item.enabled ? 'true' : 'false';
+  $('standardSource').value = item.standardSource || '';
+  $('standardNote').value = item.standardNote || '';
+  $('standardFormTitle').textContent = `编辑标准：${item.itemName}`;
+}
+async function saveStandard() {
+  const id = $('standardId').value;
+  if (!id) throw new Error('请先选择要编辑的检测标准');
+  const payload = {
+    minValue: inputNumber('standardMin'),
+    maxValue: inputNumber('standardMax'),
+    unit: $('standardUnit').value.trim(),
+    displayRange: $('standardRange').value.trim(),
+    pressureMinMpa: inputNumber('standardPressureMin'),
+    pressureMaxMpa: inputNumber('standardPressureMax'),
+    enabled: $('standardEnabled').value === 'true',
+    standardSource: $('standardSource').value.trim(),
+    standardNote: $('standardNote').value.trim(),
+  };
+  await api('/water-quality-limits/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+  resetStandardForm();
+  await loadStandards();
+}
+async function resetStandards() {
+  if (!confirm('确认恢复6项锅水检测默认标准？')) return;
+  await api('/water-quality-limits/reset', { method: 'POST' });
+  resetStandardForm();
+  await loadStandards();
+}
 async function loadInspections() {
   const params = new URLSearchParams();
   if ($('inspectionStatus').value) params.set('status', $('inspectionStatus').value);
@@ -568,7 +681,7 @@ async function loadReport() {
 }
 async function refreshAll() {
   await loadDashboard();
-  await Promise.all([loadEnterprises(), loadPacks(), loadBoilers(), loadInspections(), loadUsers(), loadReport()]);
+  await Promise.all([loadEnterprises(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadUsers(), loadReport()]);
 }
 
 document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
@@ -582,6 +695,10 @@ $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
 $('saveBoilerBtn').onclick = () => saveBoiler().catch(showDebug);
 $('resetBoilerFormBtn').onclick = () => resetBoilerForm();
 $('loadBoilersBtn').onclick = () => loadBoilers().catch(showDebug);
+$('loadStandardsBtn').onclick = () => loadStandards().catch(showDebug);
+$('saveStandardBtn').onclick = () => saveStandard().catch(showDebug);
+$('resetStandardFormBtn').onclick = () => resetStandardForm();
+$('resetStandardsBtn').onclick = () => resetStandards().catch(showDebug);
 $('loadInspectionsBtn').onclick = () => loadInspections().catch(showDebug);
 $('loadUsersBtn').onclick = () => loadUsers().catch(showDebug);
 $('saveUserBtn').onclick = () => saveUser().catch(showDebug);
@@ -590,6 +707,7 @@ $('loadReportBtn').onclick = () => loadReport().catch(showDebug);
 setWho();
 resetEnterpriseForm();
 resetBoilerForm();
+resetStandardForm();
 resetUserForm();
 refreshAll().catch(showDebug);
 </script>

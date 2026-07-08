@@ -389,6 +389,32 @@ def seed_water_quality_limits(conn) -> None:
         )
 
 
+def ensure_column(conn, table: str, column: str, definition: str) -> None:
+    try:
+        if DB_DRIVER == "mysql":
+            rows = conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM information_schema.columns
+                WHERE table_schema = ? AND table_name = ? AND column_name = ?
+                """,
+                (MYSQL_DATABASE, table, column),
+            ).fetchone()
+            exists = rows["c"] > 0
+        else:
+            exists = any(row["name"] == column for row in conn.execute(f"PRAGMA table_info({table})"))
+        if not exists:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except Exception:
+        pass
+
+
+def ensure_schema_updates(conn) -> None:
+    ensure_column(conn, "water_quality_limits", "updated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "water_quality_limits", "updated_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+
+
 def seed_data(conn) -> None:
     conn.execute(
         "INSERT IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)"
@@ -398,6 +424,7 @@ def seed_data(conn) -> None:
     )
     seed_users(conn)
     seed_water_test_items(conn)
+    ensure_schema_updates(conn)
     seed_water_quality_limits(conn)
     conn.execute(
         """
@@ -513,6 +540,9 @@ def init_sqlite() -> None:
               standard_note TEXT,
               enabled INTEGER NOT NULL DEFAULT 1,
               created_at TEXT NOT NULL,
+              updated_at TEXT,
+              updated_by INTEGER,
+              updated_by_name TEXT,
               UNIQUE(item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa)
             );
             CREATE TABLE IF NOT EXISTS inspections (
@@ -637,6 +667,9 @@ def init_mysql() -> None:
               standard_note VARCHAR(512) NULL,
               enabled TINYINT NOT NULL DEFAULT 1,
               created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              updated_by BIGINT NULL,
+              updated_by_name VARCHAR(64) NULL,
               UNIQUE KEY uk_water_limit_scope (item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa),
               KEY idx_water_limits_item (item_code)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -788,6 +821,18 @@ class PackActivateReq(BaseModel):
 
 class PackCodeReq(BaseModel):
     code: str
+
+
+class WaterQualityLimitUpdateReq(BaseModel):
+    pressureMinMpa: Optional[float] = None
+    pressureMaxMpa: Optional[float] = None
+    minValue: Optional[float] = None
+    maxValue: Optional[float] = None
+    unit: Optional[str] = None
+    displayRange: Optional[str] = None
+    standardSource: Optional[str] = None
+    standardNote: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 class InspectionCreateReq(BaseModel):
@@ -1303,6 +1348,127 @@ def unbind_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="检测包不存在")
     return {"code": req.code, "status": "activated", "boilerId": None}
+
+
+def water_quality_limit_response(row) -> dict:
+    limit = row_to_dict(row)
+    if not limit:
+        return {}
+    return {
+        "id": limit["id"],
+        "itemCode": limit["item_code"],
+        "itemName": limit.get("item_name") or limit["item_code"],
+        "priority": limit.get("priority"),
+        "boilerType": limit["boiler_type"],
+        "sampleType": limit["sample_type"],
+        "pressureMinMpa": decimal_to_number(limit["pressure_min_mpa"]),
+        "pressureMaxMpa": decimal_to_number(limit["pressure_max_mpa"]),
+        "minValue": decimal_to_number(limit["min_value"]),
+        "maxValue": decimal_to_number(limit["max_value"]),
+        "unit": limit["unit"] or "",
+        "displayRange": limit["display_range"] or "",
+        "standardSource": limit["standard_source"] or "",
+        "standardNote": limit["standard_note"] or "",
+        "enabled": bool(limit["enabled"]),
+        "createdAt": limit["created_at"],
+        "updatedAt": limit.get("updated_at"),
+        "updatedBy": limit.get("updated_by"),
+        "updatedByName": limit.get("updated_by_name"),
+    }
+
+
+def load_water_quality_limits(conn):
+    rows = conn.execute(
+        """
+        SELECT l.*, i.name AS item_name, i.priority
+        FROM water_quality_limits l
+        LEFT JOIN water_test_items i ON i.code = l.item_code
+        ORDER BY COALESCE(i.priority, 999), l.id
+        """
+    )
+    return [water_quality_limit_response(row) for row in rows]
+
+
+@app.get("/water-quality-limits")
+def list_water_quality_limits(authorization: Optional[str] = Header(None)):
+    require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        ensure_schema_updates(conn)
+        return load_water_quality_limits(conn)
+
+
+@app.put("/water-quality-limits/{limit_id}")
+def update_water_quality_limit(limit_id: int, req: WaterQualityLimitUpdateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    if req.minValue is not None and req.maxValue is not None and req.minValue > req.maxValue:
+        raise HTTPException(status_code=400, detail="下限不能大于上限")
+    if req.pressureMinMpa is not None and req.pressureMaxMpa is not None and req.pressureMinMpa > req.pressureMaxMpa:
+        raise HTTPException(status_code=400, detail="压力下限不能大于压力上限")
+    field_map = {
+        "pressureMinMpa": "pressure_min_mpa",
+        "pressureMaxMpa": "pressure_max_mpa",
+        "minValue": "min_value",
+        "maxValue": "max_value",
+        "unit": "unit",
+        "displayRange": "display_range",
+        "standardSource": "standard_source",
+        "standardNote": "standard_note",
+        "enabled": "enabled",
+    }
+    payload = req.dict(exclude_unset=True)
+    with db() as conn:
+        ensure_schema_updates(conn)
+        existing = row_to_dict(conn.execute("SELECT * FROM water_quality_limits WHERE id = ?", (limit_id,)).fetchone())
+        if not existing:
+            raise HTTPException(status_code=404, detail="检测标准不存在")
+        target_min = payload.get("minValue", existing["min_value"])
+        target_max = payload.get("maxValue", existing["max_value"])
+        if target_min is not None and target_max is not None and float(target_min) > float(target_max):
+            raise HTTPException(status_code=400, detail="下限不能大于上限")
+        target_pressure_min = payload.get("pressureMinMpa", existing["pressure_min_mpa"])
+        target_pressure_max = payload.get("pressureMaxMpa", existing["pressure_max_mpa"])
+        if target_pressure_min is not None and target_pressure_max is not None and float(target_pressure_min) > float(target_pressure_max):
+            raise HTTPException(status_code=400, detail="压力下限不能大于压力上限")
+        updates = []
+        params = []
+        for key, column in field_map.items():
+            if key not in payload:
+                continue
+            value = payload[key]
+            if isinstance(value, str):
+                value = value.strip()
+            if key == "enabled":
+                value = 1 if value else 0
+            updates.append(f"{column} = ?")
+            params.append(value)
+        if updates:
+            updates.extend(["updated_at = ?", "updated_by = ?", "updated_by_name = ?"])
+            params.extend([now(), current_user.get("id"), current_user.get("name") or current_user.get("username")])
+            params.append(limit_id)
+            conn.execute(f"UPDATE water_quality_limits SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        row = conn.execute(
+            """
+            SELECT l.*, i.name AS item_name, i.priority
+            FROM water_quality_limits l
+            LEFT JOIN water_test_items i ON i.code = l.item_code
+            WHERE l.id = ?
+            """,
+            (limit_id,),
+        ).fetchone()
+        return water_quality_limit_response(row)
+
+
+@app.post("/water-quality-limits/reset")
+def reset_water_quality_limits(authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        ensure_schema_updates(conn)
+        seed_water_quality_limits(conn)
+        conn.execute(
+            "UPDATE water_quality_limits SET updated_at = ?, updated_by = ?, updated_by_name = ? WHERE boiler_type = 'steam' AND sample_type = 'boiler_water'",
+            (now(), current_user.get("id"), current_user.get("name") or current_user.get("username")),
+        )
+        return load_water_quality_limits(conn)
 
 
 def parse_number(value: str) -> Optional[float]:

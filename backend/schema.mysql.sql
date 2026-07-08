@@ -86,6 +86,9 @@ CREATE TABLE IF NOT EXISTS water_quality_limits (
   standard_note VARCHAR(512) NULL,
   enabled TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL,
+  updated_at DATETIME NULL,
+  updated_by BIGINT NULL,
+  updated_by_name VARCHAR(64) NULL,
   UNIQUE KEY uk_water_limit_scope (item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa),
   KEY idx_water_limits_item (item_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

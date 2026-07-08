@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS water_quality_limit (
   standard_note VARCHAR(512) NULL,
   enabled TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by BIGINT NULL,
+  updated_by_name VARCHAR(64) NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_water_quality_limit_scope (item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa),
   KEY idx_water_quality_limit_item (item_code)

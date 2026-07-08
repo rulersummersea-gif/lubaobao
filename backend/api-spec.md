@@ -158,6 +158,28 @@
 数据库同步维护 `water_test_items` 检测项目模板表、`water_quality_limits` 标准限值表，以及 `inspection_test_results` 单次检测结果明细表。
 当前灰测标准来源标记为 `GB/T 1576 工业锅炉水质`，范围按工业蒸汽锅炉锅水/炉水低压段配置；正式上线前需结合锅炉额定压力、补给水处理方式和最新国标原文复核。
 
+### GET `/water-quality-limits`
+后台检测标准管理列表，需要 `platform_admin` 或 `enterprise_admin`。
+
+### PUT `/water-quality-limits/{id}`
+编辑检测标准上下限、单位、压力段、依据、备注或启停状态。
+```json
+{
+  "minValue": 8.5,
+  "maxValue": 10.5,
+  "unit": "",
+  "displayRange": "8.5-10.5",
+  "pressureMinMpa": 0,
+  "pressureMaxMpa": 3.8,
+  "standardSource": "GB/T 1576 工业锅炉水质",
+  "standardNote": "按现场锅炉压力段复核",
+  "enabled": true
+}
+```
+
+### POST `/water-quality-limits/reset`
+恢复当前 6 项锅水检测默认灰测标准，需要后台管理员权限。
+
 ### GET `/inspections/result?inspectionId=9001`
 
 ### POST `/inspections/submit`
