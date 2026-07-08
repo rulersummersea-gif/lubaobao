@@ -1102,8 +1102,11 @@ def list_packs(enterpriseId: int = 1):
     with db() as conn:
         rows = conn.execute(
             """
-            SELECT id, enterprise_id AS enterpriseId, code, type, status, boiler_id AS boilerId, expire_at AS expireAt
-            FROM material_packs WHERE enterprise_id = ? ORDER BY id DESC
+            SELECT p.id, p.enterprise_id AS enterpriseId, p.code, p.type, p.status,
+                   p.boiler_id AS boilerId, b.name AS boilerName, p.expire_at AS expireAt
+            FROM material_packs p
+            LEFT JOIN boilers b ON b.id = p.boiler_id
+            WHERE p.enterprise_id = ? ORDER BY p.id DESC
             """,
             (enterpriseId,),
         )
@@ -1154,19 +1157,32 @@ def verify_pack(req: PackVerifyReq):
 @app.post("/material-packs/activate")
 def activate_pack(req: PackActivateReq):
     with db() as conn:
-        pack = conn.execute("SELECT * FROM material_packs WHERE code = ?", (req.code,)).fetchone()
+        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE code = ?", (req.code,)).fetchone())
         if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
+        enterprise_id = req.enterpriseId or pack["enterprise_id"]
+        if req.boilerId:
+            boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (req.boilerId,)).fetchone())
+            if not boiler:
+                raise HTTPException(status_code=404, detail="锅炉不存在")
+            if boiler["enterprise_id"] != enterprise_id or pack["enterprise_id"] != enterprise_id:
+                raise HTTPException(status_code=400, detail="材料包和锅炉不属于同一企业")
         conn.execute(
             """
             UPDATE material_packs
             SET status = 'activated', boiler_id = COALESCE(?, boiler_id), enterprise_id = COALESCE(?, enterprise_id), activated_at = ?
             WHERE code = ?
             """,
-            (req.boilerId, req.enterpriseId, now(), req.code),
+            (req.boilerId, enterprise_id, now(), req.code),
         )
         updated = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE code = ?", (req.code,)).fetchone())
-    return {"id": updated["id"], "code": updated["code"], "enterpriseId": updated["enterprise_id"], "status": updated["status"]}
+    return {
+        "id": updated["id"],
+        "code": updated["code"],
+        "enterpriseId": updated["enterprise_id"],
+        "boilerId": updated["boiler_id"],
+        "status": updated["status"],
+    }
 
 
 @app.post("/material-packs/invalidate")

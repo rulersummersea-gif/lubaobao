@@ -112,6 +112,7 @@
 ```json
 { "code": "PACK-001", "enterpriseId": 1, "boilerId": 1001 }
 ```
+激活/绑定时会校验材料包、锅炉属于同一企业；后台管理页已改为选择真实锅炉，不再固定绑定 `1001`。
 
 ### POST `/material-packs/unbind`
 ```json

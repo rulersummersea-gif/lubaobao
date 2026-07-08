@@ -115,15 +115,20 @@
       <div class="card">
         <h2>材料包入库</h2>
         <div class="row">
+          <input id="packEnterprise" value="1" placeholder="企业ID">
           <input id="packCode" value="PACK-002" placeholder="材料包编码">
           <input id="packType" value="基础版" placeholder="类型">
           <input id="packExpire" value="2027-12-31" placeholder="有效期">
           <button id="createPackBtn">入库</button>
-          <button class="secondary" id="loadPacksBtn">刷新列表</button>
         </div>
       </div>
       <div class="card">
-        <h2>材料包列表</h2>
+        <div class="row">
+          <h2 style="margin-right:auto">材料包列表</h2>
+          <input id="packEnterpriseFilter" value="1" placeholder="企业ID">
+          <select id="packBindBoiler"></select>
+          <button class="secondary" id="loadPacksBtn">刷新列表</button>
+        </div>
         <table><thead><tr><th>ID</th><th>编码</th><th>状态</th><th>锅炉</th><th>有效期</th><th>操作</th></tr></thead><tbody id="packsBody"></tbody></table>
       </div>
     </section>
@@ -333,23 +338,33 @@ async function setEnterpriseStatus(id, status) {
   await loadDashboard();
 }
 async function loadPacks() {
-  const packs = await api('/material-packs?enterpriseId=1');
+  const enterpriseId = $('packEnterpriseFilter').value || 1;
+  const [packs, boilers] = await Promise.all([
+    api('/material-packs?enterpriseId=' + encodeURIComponent(enterpriseId)),
+    api('/boilers?enterpriseId=' + encodeURIComponent(enterpriseId))
+  ]);
+  $('packBindBoiler').innerHTML = boilers.map((b) => `<option value="${b.id}">${esc(b.name || b.model || b.id)}（${b.id}）</option>`).join('');
   $('packsBody').innerHTML = packs.map((p) => `
     <tr>
-      <td>${p.id}</td><td>${p.code}</td><td>${tag(p.status)}</td><td>${p.boilerId || '-'}</td><td>${p.expireAt || '-'}</td>
+      <td>${p.id}</td><td>${p.code}</td><td>${tag(p.status)}</td><td>${p.boilerName ? `${esc(p.boilerName)}（${p.boilerId}）` : (p.boilerId || '-')}</td><td>${p.expireAt || '-'}</td>
       <td>
-        <button class="secondary" onclick="activatePack('${p.code}')">绑定1001</button>
+        <button class="secondary" onclick="activatePack('${p.code}')">绑定所选锅炉</button>
         <button class="secondary" onclick="unbindPack('${p.code}')">解绑</button>
         <button class="warn" onclick="invalidatePack('${p.code}')">作废</button>
       </td>
     </tr>`).join('');
 }
 async function createPack() {
-  await api('/material-packs', { method: 'POST', body: JSON.stringify({ code: $('packCode').value.trim(), type: $('packType').value.trim(), expireAt: $('packExpire').value.trim(), enterpriseId: 1 }) });
+  const enterpriseId = Number($('packEnterprise').value || $('packEnterpriseFilter').value || 1);
+  await api('/material-packs', { method: 'POST', body: JSON.stringify({ code: $('packCode').value.trim(), type: $('packType').value.trim(), expireAt: $('packExpire').value.trim(), enterpriseId }) });
+  $('packEnterpriseFilter').value = enterpriseId;
   await loadPacks();
 }
 async function activatePack(code) {
-  await api('/material-packs/activate', { method: 'POST', body: JSON.stringify({ code, enterpriseId: 1, boilerId: 1001 }) });
+  const enterpriseId = Number($('packEnterpriseFilter').value || 1);
+  const boilerId = Number($('packBindBoiler').value || 0);
+  if (!boilerId) throw new Error('请先选择要绑定的锅炉');
+  await api('/material-packs/activate', { method: 'POST', body: JSON.stringify({ code, enterpriseId, boilerId }) });
   await loadPacks();
 }
 async function unbindPack(code) {
