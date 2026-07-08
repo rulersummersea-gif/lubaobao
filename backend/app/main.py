@@ -463,6 +463,21 @@ class UserStatusReq(BaseModel):
     status: str
 
 
+class EnterpriseCreateReq(BaseModel):
+    name: str
+    code: Optional[str] = None
+
+
+class EnterpriseUpdateReq(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    status: Optional[str] = None
+
+
+class EnterpriseStatusReq(BaseModel):
+    status: str
+
+
 class BoilerCreateReq(BaseModel):
     enterpriseId: int = 1
     deviceCode: str
@@ -582,6 +597,16 @@ def users(authorization: Optional[str] = Header(None)):
         return [user_response(row) for row in rows]
 
 
+def enterprise_response(row) -> dict:
+    enterprise = row_to_dict(row)
+    return {
+        "id": enterprise["id"],
+        "name": enterprise["name"],
+        "code": enterprise["code"],
+        "status": enterprise["status"],
+    }
+
+
 @app.post("/users")
 def create_user(req: UserCreateReq, authorization: Optional[str] = Header(None)):
     current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
@@ -672,7 +697,69 @@ def update_user_status(user_id: int, req: UserStatusReq, authorization: Optional
 @app.get("/enterprises")
 def enterprises():
     with db() as conn:
-        return [row_to_dict(row) for row in conn.execute("SELECT id, name, code, status FROM enterprises ORDER BY id")]
+        return [enterprise_response(row) for row in conn.execute("SELECT id, name, code, status FROM enterprises ORDER BY id")]
+
+
+@app.post("/enterprises")
+def create_enterprise(req: EnterpriseCreateReq, authorization: Optional[str] = Header(None)):
+    require_roles(authorization, ("platform_admin",))
+    name = req.name.strip()
+    code = req.code.strip() if req.code else None
+    if not name:
+        raise HTTPException(status_code=400, detail="企业名称不能为空")
+    with db() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO enterprises(name, code, status, created_at) VALUES(?, ?, 'active', ?)",
+                (name, code, now()),
+            )
+        except Exception as exc:
+            if not is_integrity_error(exc):
+                raise
+            raise HTTPException(status_code=409, detail="企业编码已存在")
+        row = conn.execute("SELECT id, name, code, status FROM enterprises WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return enterprise_response(row)
+
+
+@app.put("/enterprises/{enterprise_id}")
+def update_enterprise(enterprise_id: int, req: EnterpriseUpdateReq, authorization: Optional[str] = Header(None)):
+    require_roles(authorization, ("platform_admin",))
+    with db() as conn:
+        existing = conn.execute("SELECT id, name, code, status FROM enterprises WHERE id = ?", (enterprise_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="企业不存在")
+        updates = []
+        params = []
+        if req.name is not None:
+            if not req.name.strip():
+                raise HTTPException(status_code=400, detail="企业名称不能为空")
+            updates.append("name = ?")
+            params.append(req.name.strip())
+        if req.code is not None:
+            updates.append("code = ?")
+            params.append(req.code.strip() or None)
+        if req.status is not None:
+            if req.status not in ("active", "disabled"):
+                raise HTTPException(status_code=400, detail="状态不合法")
+            updates.append("status = ?")
+            params.append(req.status)
+        if updates:
+            params.append(enterprise_id)
+            try:
+                conn.execute(f"UPDATE enterprises SET {', '.join(updates)} WHERE id = ?", tuple(params))
+            except Exception as exc:
+                if not is_integrity_error(exc):
+                    raise
+                raise HTTPException(status_code=409, detail="企业编码已存在")
+        row = conn.execute("SELECT id, name, code, status FROM enterprises WHERE id = ?", (enterprise_id,)).fetchone()
+        return enterprise_response(row)
+
+
+@app.patch("/enterprises/{enterprise_id}/status")
+def update_enterprise_status(enterprise_id: int, req: EnterpriseStatusReq, authorization: Optional[str] = Header(None)):
+    if req.status not in ("active", "disabled"):
+        raise HTTPException(status_code=400, detail="状态不合法")
+    return update_enterprise(enterprise_id, EnterpriseUpdateReq(status=req.status), authorization)
 
 
 @app.get("/boilers")

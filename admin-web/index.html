@@ -58,6 +58,7 @@
     <div class="muted" id="who">未登录</div>
     <div class="nav">
       <button data-tab="dashboard" class="active">仪表盘</button>
+      <button data-tab="enterprises">企业管理</button>
       <button data-tab="packs">材料包管理</button>
       <button data-tab="boilers">锅炉管理</button>
       <button data-tab="inspections">巡检记录</button>
@@ -85,9 +86,28 @@
     <section id="dashboard" class="tab active">
       <div class="grid">
         <div class="kpi"><span>API 状态</span><b id="apiState">-</b></div>
+        <div class="kpi"><span>企业数量</span><b id="enterpriseCount">-</b></div>
         <div class="kpi"><span>锅炉数量</span><b id="boilerCount">-</b></div>
         <div class="kpi"><span>材料包数量</span><b id="packCount">-</b></div>
         <div class="kpi"><span>巡检记录</span><b id="inspectionCount">-</b></div>
+      </div>
+    </section>
+
+    <section id="enterprises" class="tab">
+      <div class="card">
+        <h2 id="enterpriseFormTitle">新增企业</h2>
+        <div class="row">
+          <input id="enterpriseId" type="hidden">
+          <input id="enterpriseName" placeholder="企业名称">
+          <input id="enterpriseCode" placeholder="企业编码">
+          <button id="saveEnterpriseBtn">保存企业</button>
+          <button class="secondary" id="resetEnterpriseFormBtn">清空</button>
+          <button class="secondary" id="loadEnterprisesBtn">刷新企业</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>企业列表</h2>
+        <table><thead><tr><th>ID</th><th>企业名称</th><th>编码</th><th>状态</th><th>操作</th></tr></thead><tbody id="enterprisesBody"></tbody></table>
       </div>
     </section>
 
@@ -198,7 +218,12 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { token: localStorage.getItem('LB_ADMIN_TOKEN') || '', user: JSON.parse(localStorage.getItem('LB_ADMIN_USER') || 'null'), users: [] };
+const state = {
+  token: localStorage.getItem('LB_ADMIN_TOKEN') || '',
+  user: JSON.parse(localStorage.getItem('LB_ADMIN_USER') || 'null'),
+  enterprises: [],
+  users: [],
+};
 
 function base() { return $('base').value.trim() || '/api'; }
 function showDebug(v) { $('debugOut').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2); }
@@ -239,10 +264,58 @@ async function login() {
 async function loadDashboard() {
   const root = await api('/');
   $('apiState').textContent = root.version || 'OK';
-  const [boilers, packs, inspections] = await Promise.all([api('/boilers'), api('/material-packs?enterpriseId=1'), api('/inspections')]);
+  const [enterprises, boilers, packs, inspections] = await Promise.all([api('/enterprises'), api('/boilers'), api('/material-packs?enterpriseId=1'), api('/inspections')]);
+  $('enterpriseCount').textContent = enterprises.length;
   $('boilerCount').textContent = boilers.length;
   $('packCount').textContent = packs.length;
   $('inspectionCount').textContent = inspections.length;
+}
+async function loadEnterprises() {
+  const enterprises = await api('/enterprises');
+  state.enterprises = enterprises;
+  $('enterprisesBody').innerHTML = enterprises.map((e) => `
+    <tr>
+      <td>${e.id}</td><td>${esc(e.name)}</td><td>${esc(e.code || '-')}</td><td>${tag(e.status)}</td>
+      <td>
+        <button class="secondary" onclick="editEnterprise(${e.id})">编辑</button>
+        ${e.status === 'active'
+          ? `<button class="danger" onclick="setEnterpriseStatus(${e.id}, 'disabled')">停用</button>`
+          : `<button class="secondary" onclick="setEnterpriseStatus(${e.id}, 'active')">启用</button>`}
+      </td>
+    </tr>`).join('');
+}
+function resetEnterpriseForm() {
+  $('enterpriseId').value = '';
+  $('enterpriseName').value = '';
+  $('enterpriseCode').value = '';
+  $('enterpriseFormTitle').textContent = '新增企业';
+}
+function editEnterprise(id) {
+  const enterprise = state.enterprises.find((item) => item.id === id);
+  if (!enterprise) return;
+  $('enterpriseId').value = enterprise.id;
+  $('enterpriseName').value = enterprise.name;
+  $('enterpriseCode').value = enterprise.code || '';
+  $('enterpriseFormTitle').textContent = `编辑企业：${enterprise.name}`;
+}
+async function saveEnterprise() {
+  const id = $('enterpriseId').value;
+  const payload = { name: $('enterpriseName').value.trim(), code: $('enterpriseCode').value.trim() || null };
+  if (id) {
+    await api('/enterprises/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+  } else {
+    await api('/enterprises', { method: 'POST', body: JSON.stringify(payload) });
+  }
+  resetEnterpriseForm();
+  await loadEnterprises();
+  await loadDashboard();
+}
+async function setEnterpriseStatus(id, status) {
+  const action = status === 'active' ? '启用' : '停用';
+  if (!confirm(`确认${action}该企业？`)) return;
+  await api('/enterprises/' + id + '/status', { method: 'PATCH', body: JSON.stringify({ status }) });
+  await loadEnterprises();
+  await loadDashboard();
 }
 async function loadPacks() {
   const packs = await api('/material-packs?enterpriseId=1');
@@ -397,12 +470,15 @@ async function loadReport() {
 }
 async function refreshAll() {
   await loadDashboard();
-  await Promise.all([loadPacks(), loadBoilers(), loadInspections(), loadUsers(), loadReport()]);
+  await Promise.all([loadEnterprises(), loadPacks(), loadBoilers(), loadInspections(), loadUsers(), loadReport()]);
 }
 
 document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
 $('loginBtn').onclick = () => login().catch(showDebug);
 $('refreshBtn').onclick = () => refreshAll().catch(showDebug);
+$('saveEnterpriseBtn').onclick = () => saveEnterprise().catch(showDebug);
+$('resetEnterpriseFormBtn').onclick = () => resetEnterpriseForm();
+$('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
 $('createPackBtn').onclick = () => createPack().catch(showDebug);
 $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
 $('createBoilerBtn').onclick = () => createBoiler().catch(showDebug);
@@ -413,6 +489,7 @@ $('saveUserBtn').onclick = () => saveUser().catch(showDebug);
 $('resetUserFormBtn').onclick = () => resetUserForm();
 $('loadReportBtn').onclick = () => loadReport().catch(showDebug);
 setWho();
+resetEnterpriseForm();
 resetUserForm();
 refreshAll().catch(showDebug);
 </script>

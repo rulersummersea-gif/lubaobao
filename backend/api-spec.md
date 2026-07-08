@@ -30,7 +30,27 @@
 ```
 
 ## 2. 企业与锅炉
-### GET `/enterprises/:id`
+### GET `/enterprises`
+查询企业列表。
+
+### POST `/enterprises`
+新增企业，需要 `platform_admin`。
+```json
+{ "name": "华能示范工厂", "code": "HN-DEMO" }
+```
+
+### PUT `/enterprises/{id}`
+编辑企业名称、编码或状态，需要 `platform_admin`。
+```json
+{ "name": "华能示范工厂", "code": "HN-DEMO", "status": "active" }
+```
+
+### PATCH `/enterprises/{id}/status`
+启用或停用企业，需要 `platform_admin`。
+```json
+{ "status": "disabled" }
+```
+
 ### GET `/boilers?enterpriseId=1`
 ### POST `/boilers`
 锅炉入参（12字段）：
