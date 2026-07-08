@@ -724,6 +724,48 @@ def health():
     return {"ok": True, "service": "lubaobao-api"}
 
 
+@app.get("/dashboard")
+def dashboard(enterpriseId: int = 1):
+    with db() as conn:
+        boiler_count = conn.execute("SELECT COUNT(*) AS c FROM boilers WHERE enterprise_id = ?", (enterpriseId,)).fetchone()["c"]
+        pack_count = conn.execute("SELECT COUNT(*) AS c FROM material_packs WHERE enterprise_id = ?", (enterpriseId,)).fetchone()["c"]
+        inspection_count = conn.execute("SELECT COUNT(*) AS c FROM inspections WHERE enterprise_id = ?", (enterpriseId,)).fetchone()["c"]
+        latest = row_to_dict(
+            conn.execute(
+                """
+                SELECT score, summary, result_json AS resultJson, created_at AS createdAt
+                FROM inspections
+                WHERE enterprise_id = ? AND result_json IS NOT NULL
+                ORDER BY id DESC LIMIT 1
+                """,
+                (enterpriseId,),
+            ).fetchone()
+        )
+    alerts = []
+    if latest and latest.get("resultJson"):
+        result = json.loads(latest["resultJson"])
+        for item in result.get("items", []):
+            if item.get("status") == "warning":
+                alerts.append(
+                    {
+                        "title": f"{item.get('name')}预警",
+                        "desc": item.get("maintenance") or item.get("normalRange") or "建议复测确认",
+                    }
+                )
+    if not alerts:
+        alerts = [{"title": "锅水6项待复测", "desc": "建议按pH、磷酸根、亚硫酸根、总碱度、氯离子、硬度顺序完成检测。"}]
+    return {
+        "stats": [
+            {"label": "锅炉数量", "value": boiler_count},
+            {"label": "材料包", "value": pack_count},
+            {"label": "巡检记录", "value": inspection_count},
+            {"label": "健康评分", "value": latest["score"] if latest else 74},
+        ],
+        "alerts": alerts[:3],
+        "latest": latest or {},
+    }
+
+
 @app.post("/auth/wx-login")
 def wx_login(req: WxLoginReq):
     user = {"id": 1, "username": "wx_user", "name": "测试用户", "role": "inspector", "enterpriseId": 1}
