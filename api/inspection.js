@@ -30,7 +30,7 @@ function getRecords(params = {}) {
 }
 
 function getRecordDetail(id) {
-  const url = config.useMock ? '/record-detail' : `/inspections/records/${id}`
+  const url = config.useMock ? '/record-detail' : `/records/${id}`
   const method = 'GET'
   const data = config.useMock ? { id } : {}
   return request({ url, method, data })
