@@ -156,7 +156,7 @@ WATER_TEST_ITEMS = [
         "code": "chloride",
         "name": "氯离子",
         "priority": 5,
-        "method": "氯离子试纸/滴定包",
+        "method": "氯离子试纸",
         "normalRange": "≤300 mg/L",
         "meaning": "用于判断浓缩程度和点蚀风险，氯离子过高会加剧局部腐蚀。",
         "maintenance": "偏高时优先加强排污，检查补水来源和软化/除盐设备，必要时缩短复测周期。",

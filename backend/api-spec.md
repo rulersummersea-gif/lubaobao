@@ -151,12 +151,13 @@
 2. 磷酸根：磷酸根试纸
 3. 亚硫酸根：亚硫酸根试纸
 4. 总碱度：总碱度试纸
-5. 氯离子：氯离子试纸/滴定包
+5. 氯离子：氯离子试纸
 6. 硬度：硬度试纸
 
 每个检测项包含 `priority`、`method`、`normalRange`、`standardMin`、`standardMax`、`standardSource`、`meaning`、`maintenance`，用于小程序和后台展示维护指导。
 数据库同步维护 `water_test_items` 检测项目模板表、`water_quality_limits` 标准限值表，以及 `inspection_test_results` 单次检测结果明细表。
 当前灰测标准来源标记为 `GB/T 1576 工业锅炉水质`，范围按工业蒸汽锅炉锅水/炉水低压段配置；正式上线前需结合锅炉额定压力、补给水处理方式和最新国标原文复核。
+第一阶段产品坚持试纸优先，滴定、仪表或第三方检测只作为异常复核和高级能力，不作为日常小程序巡检的刚性流程。
 
 ### GET `/water-quality-limits`
 后台检测标准管理列表，需要 `platform_admin` 或 `enterprise_admin`。
