@@ -158,6 +158,21 @@
 数据库同步维护 `water_test_items` 检测项目模板表、`water_quality_limits` 标准限值表，以及 `inspection_test_results` 单次检测结果明细表。
 当前灰测标准来源标记为 `GB/T 1576 工业锅炉水质`，范围按工业蒸汽锅炉锅水/炉水压力段配置；识别时会读取锅炉额定压力并自动匹配对应压力段。正式上线前需结合锅炉额定压力、补给水处理方式和最新国标原文复核。
 第一阶段产品坚持试纸优先，滴定、仪表或第三方检测只作为异常复核和高级能力，不作为日常小程序巡检的刚性流程。
+当前版本只做锅水/炉水 6 项，不采集给水数据；数据库和标准表保留 `sample_type` 能力，后续可扩展给水/补给水。
+识别结果会根据异常组合生成动态诊断，`diagnosis` 每项包含：
+```json
+{
+  "riskCode": "scale",
+  "riskType": "结垢风险",
+  "level": "high",
+  "title": "结垢风险预警",
+  "reason": "硬度偏高且磷酸根偏低...",
+  "advice": "优先检查软水器...",
+  "relatedItems": ["hardness", "phosphate"],
+  "relatedItemNames": "磷酸根、硬度"
+}
+```
+现有组合规则：硬度高+磷酸根低、pH低+亚硫酸根低、氯离子高+总碱度高、磷酸根高+亚硫酸根高、pH高+总碱度高；未命中组合时按单项异常生成建议。
 
 ### GET `/water-quality-limits`
 后台检测标准管理列表，需要 `platform_admin` 或 `enterprise_admin`。

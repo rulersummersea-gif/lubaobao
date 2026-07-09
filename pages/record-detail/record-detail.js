@@ -42,8 +42,14 @@ Page({
         statusText: item.status === 'unknown' || item.standardMatched === false ? '待配置' : (item.status === 'warning' || item.abnormal ? '异常' : '正常')
       })),
       diagnosis: (raw.diagnosis || []).map((item) => {
-        if (typeof item === 'string') return { title: item, advice: item }
-        return { title: item.title || '诊断建议', advice: item.advice || item.title || '' }
+        if (typeof item === 'string') return { title: item, riskType: '', reason: '', advice: item, relatedItemNames: '' }
+        return {
+          title: item.title || '诊断建议',
+          riskType: item.riskType || '',
+          reason: item.reason || '',
+          advice: item.advice || item.title || '',
+          relatedItemNames: item.relatedItemNames || ''
+        }
       })
     }
   }

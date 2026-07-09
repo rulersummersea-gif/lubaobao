@@ -32,8 +32,11 @@ Page({
       if (typeof item === 'string') return { title: item, reason: '', advice: item }
       return {
         title: item.title || item.advice || '诊断建议',
+        riskType: item.riskType || '',
+        level: item.level || '',
         reason: item.reason || '',
-        advice: item.advice || item.title || ''
+        advice: item.advice || item.title || '',
+        relatedItemNames: item.relatedItemNames || ''
       }
     })
     return {

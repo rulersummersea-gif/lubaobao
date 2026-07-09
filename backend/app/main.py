@@ -1613,6 +1613,195 @@ def decimal_to_number(value):
     return float(value) if value is not None else None
 
 
+def item_number(item: dict) -> Optional[float]:
+    return parse_number(str(item.get("value", "")))
+
+
+def item_low(item: dict) -> bool:
+    value = item_number(item)
+    standard_min = item.get("standardMin")
+    return value is not None and standard_min is not None and value < float(standard_min)
+
+
+def item_high(item: dict) -> bool:
+    value = item_number(item)
+    standard_max = item.get("standardMax")
+    return value is not None and standard_max is not None and value > float(standard_max)
+
+
+def related_item_names(item_map: dict, codes: list[str]) -> str:
+    return "、".join(item_map[code]["name"] for code in codes if code in item_map)
+
+
+def build_diagnosis_item(
+    risk_code: str,
+    risk_type: str,
+    level: str,
+    title: str,
+    reason: str,
+    advice: str,
+    related_items: list[str],
+    item_map: dict,
+) -> dict:
+    return {
+        "riskCode": risk_code,
+        "riskType": risk_type,
+        "level": level,
+        "title": title,
+        "reason": reason,
+        "advice": advice,
+        "relatedItems": related_items,
+        "relatedItemNames": related_item_names(item_map, related_items),
+    }
+
+
+def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]) -> tuple[int, str, str, list[dict]]:
+    item_map = {item["code"]: item for item in items}
+    diagnosis = []
+    covered = set()
+
+    def has(codes: list[str], direction: str) -> bool:
+        checker = item_high if direction == "high" else item_low
+        return all(code in item_map and checker(item_map[code]) for code in codes)
+
+    combo_rules = [
+        {
+            "codes": ["hardness", "phosphate"],
+            "direction": ["high", "low"],
+            "riskCode": "scale",
+            "riskType": "结垢风险",
+            "level": "high",
+            "title": "结垢风险预警",
+            "reason": "硬度偏高且磷酸根偏低，说明钙镁离子残留增加，同时防垢药剂余量不足。",
+            "advice": "优先检查软水器、补水硬度和防垢药剂投加；排污后复测硬度和磷酸根，必要时安排受热面沉积检查。",
+        },
+        {
+            "codes": ["ph", "sulfite"],
+            "direction": ["low", "low"],
+            "riskCode": "corrosion",
+            "riskType": "腐蚀风险",
+            "level": "high",
+            "title": "腐蚀风险预警",
+            "reason": "pH偏低且亚硫酸根偏低，锅水保护性下降，氧腐蚀和酸性腐蚀风险上升。",
+            "advice": "复测pH和亚硫酸根，检查除氧剂、碱性药剂和加药泵状态，确认药箱浓度与投加节奏。",
+        },
+        {
+            "codes": ["chloride", "alkalinity"],
+            "direction": ["high", "high"],
+            "riskCode": "concentration",
+            "riskType": "浓缩/排污风险",
+            "level": "warning",
+            "title": "排污不足预警",
+            "reason": "氯离子和总碱度同时偏高，提示锅水浓缩倍数偏高，可能存在排污不足。",
+            "advice": "加强连续排污或定期排污，排污后复测氯离子和总碱度，并复核补水水质。",
+        },
+        {
+            "codes": ["phosphate", "sulfite"],
+            "direction": ["high", "high"],
+            "riskCode": "overfeed",
+            "riskType": "加药过量风险",
+            "level": "warning",
+            "title": "加药过量预警",
+            "reason": "磷酸根和亚硫酸根同时偏高，说明药剂余量偏多，盐分和排污负担可能上升。",
+            "advice": "下调防垢剂和除氧剂投加量，观察排污后数据变化，避免过度加药。",
+        },
+        {
+            "codes": ["ph", "alkalinity"],
+            "direction": ["high", "high"],
+            "riskCode": "foaming",
+            "riskType": "汽水共腾风险",
+            "level": "warning",
+            "title": "汽水共腾风险预警",
+            "reason": "pH和总碱度同时偏高，锅水起泡和蒸汽携水风险增加。",
+            "advice": "加强排污，复核碱性药剂投加，观察蒸汽品质和水位波动。",
+        },
+    ]
+
+    for rule in combo_rules:
+        if all(has([code], direction) for code, direction in zip(rule["codes"], rule["direction"])):
+            diagnosis.append(
+                build_diagnosis_item(
+                    rule["riskCode"],
+                    rule["riskType"],
+                    rule["level"],
+                    rule["title"],
+                    rule["reason"],
+                    rule["advice"],
+                    rule["codes"],
+                    item_map,
+                )
+            )
+            covered.update(rule["codes"])
+
+    single_rules = {
+        ("ph", "low"): ("酸碱度偏低", "腐蚀风险", "pH偏低，锅水碱性保护不足。", "重新取样复测pH，检查碱性药剂投加和加药泵状态。"),
+        ("ph", "high"): ("酸碱度偏高", "碱腐蚀/共腾风险", "pH偏高，可能增加碱腐蚀和汽水共腾风险。", "适当加强排污，复核碱性药剂浓度和投加量。"),
+        ("phosphate", "low"): ("磷酸根偏低", "结垢风险", "磷酸根偏低，防垢药剂余量不足。", "按现场药剂方案小幅补加磷酸盐药剂，复测磷酸根和pH。"),
+        ("phosphate", "high"): ("磷酸根偏高", "加药过量风险", "磷酸根偏高，可能存在防垢剂过量。", "减少防垢剂投加并加强排污，复测磷酸根。"),
+        ("sulfite", "low"): ("亚硫酸根偏低", "腐蚀风险", "亚硫酸根偏低，除氧剂余量不足。", "检查除氧剂投加、药箱浓度和除氧设备运行状态。"),
+        ("sulfite", "high"): ("亚硫酸根偏高", "加药过量风险", "亚硫酸根偏高，可能增加盐分和排污负担。", "减少除氧剂投加量，排污后复测。"),
+        ("alkalinity", "low"): ("总碱度偏低", "保护不足风险", "总碱度偏低，锅水缓冲和防腐保护不足。", "复核碱性药剂投加，必要时调整加药量。"),
+        ("alkalinity", "high"): ("总碱度偏高", "汽水共腾风险", "总碱度偏高，起泡和汽水共腾风险上升。", "加强排污，复核碱性药剂投加和浓缩倍数。"),
+        ("chloride", "high"): ("氯离子偏高", "浓缩/点蚀风险", "氯离子偏高，提示浓缩程度偏高且点蚀风险增加。", "增加连续排污或安排定期排污，排污后复测氯离子和总碱度。"),
+        ("hardness", "high"): ("硬度偏高", "结垢风险", "硬度偏高，说明钙镁离子残留偏多。", "检查软水器再生盐、树脂状态和补水硬度，必要时检查受热面沉积。"),
+    }
+    for item in items:
+        if item["code"] in covered or item.get("status") != "warning":
+            continue
+        direction = "low" if item_low(item) else "high" if item_high(item) else "warning"
+        title, risk_type, reason, advice = single_rules.get(
+            (item["code"], direction),
+            (f"{item['name']}异常", "单项异常", f"{item['name']}检测结果超出当前压力段建议范围。", item.get("maintenance") or "建议复测并结合现场运行状态处理。"),
+        )
+        diagnosis.append(
+            build_diagnosis_item(
+                f"{item['code']}_{direction}",
+                risk_type,
+                "warning",
+                title,
+                reason,
+                advice,
+                [item["code"]],
+                item_map,
+            )
+        )
+
+    if not diagnosis and not standard_warnings:
+        diagnosis.append(
+            build_diagnosis_item(
+                "normal",
+                "正常",
+                "normal",
+                "锅水状态正常",
+                "6项炉水/锅水试纸检测均在当前压力段建议范围内。",
+                "按计划继续巡检，保持现有加药、排污和软化水管理节奏。",
+                [],
+                item_map,
+            )
+        )
+
+    warning_items = [item for item in items if item.get("status") == "warning"]
+    unknown_items = [item for item in items if item.get("status") == "unknown"]
+    high_risk_count = sum(1 for item in diagnosis if item.get("level") == "high")
+    score = max(60, 100 - len(warning_items) * 6 - len(unknown_items) * 4 - high_risk_count * 8)
+    risk_level = "warning" if warning_items or unknown_items or standard_warnings else "normal"
+    risk_types = []
+    for item in diagnosis:
+        risk_type = item.get("riskType")
+        if risk_type and risk_type != "正常" and risk_type not in risk_types:
+            risk_types.append(risk_type)
+    if warning_items:
+        summary = f"锅水检测发现{'、'.join(item['name'] for item in warning_items)} {len(warning_items)}项预警"
+        if risk_types:
+            summary += f"，主要风险：{'、'.join(risk_types)}"
+        summary += "。"
+    elif unknown_items or standard_warnings:
+        summary = "锅水检测已完成，但部分项目未匹配到适用压力段标准，建议先完善锅炉额定压力和检测标准配置。"
+    else:
+        summary = "锅水6项试纸检测均在当前压力段建议范围内，建议按计划继续巡检。"
+    return score, risk_level, summary, diagnosis
+
+
 def inspection_result_payload(inspection_id: int, conn=None) -> dict:
     sample_values = {
         "ph": "8.2",
@@ -1680,39 +1869,20 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
         standard_warnings.append("锅炉档案未填写额定压力，无法自动匹配压力段标准。")
     if unmatched:
         standard_warnings.append(f"{'、'.join(unmatched)}未匹配到适用压力段标准。")
+    score, risk_level, summary, diagnosis = build_boiler_water_diagnosis(items, standard_warnings)
     return {
         "inspectionId": inspection_id,
         "boilerId": context["boilerId"],
         "boilerName": context["boilerName"],
         "ratedPressure": context["ratedPressure"],
         "ratedPressureMpa": context["ratedPressureMpa"],
-        "score": 74,
+        "score": score,
         "status": "done",
-        "summary": "锅水检测包含6项：pH、磷酸根、氯离子、硬度存在预警，建议调整加药、检查软水器并加强排污后复测。",
+        "riskLevel": risk_level,
+        "summary": summary,
         "standardWarnings": standard_warnings,
         "items": items,
-        "diagnosis": [
-            {
-                "title": "补加防垢药剂",
-                "reason": "磷酸根偏低，防垢药剂余量不足，结垢风险上升。",
-                "advice": "按现场药剂方案小幅补加磷酸盐药剂，2小时后复测磷酸根和pH。",
-            },
-            {
-                "title": "检查软水器",
-                "reason": "硬度偏高，说明钙镁离子残留偏多，存在结垢风险。",
-                "advice": "检查软水器再生盐、树脂状态和补水硬度，必要时安排停炉检查受热面沉积。",
-            },
-            {
-                "title": "加强排污并复测氯离子",
-                "reason": "氯离子偏高，提示浓缩程度偏高且点蚀风险增加。",
-                "advice": "增加连续排污或安排定期排污，排污后复测氯离子和总碱度。",
-            },
-            {
-                "title": "复核碱度控制",
-                "reason": "pH偏低但总碱度仍在范围内，可能存在加药不均或读数偏差。",
-                "advice": "重新取样复测pH，必要时检查加药泵和药箱浓度。",
-            },
-        ],
+        "diagnosis": diagnosis,
     }
 
 
