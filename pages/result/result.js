@@ -19,10 +19,13 @@ Page({
       normalRange: item.normalRange || '',
       standardSource: item.standardSource || '',
       standardNote: item.standardNote || '',
+      pressureSegment: item.pressureSegment || '',
+      ratedPressureMpa: item.ratedPressureMpa || '',
+      standardMatched: item.standardMatched !== false,
       meaning: item.meaning || '',
       maintenance: item.maintenance || '',
       priority: item.priority || '',
-      statusText: item.status === 'warning' || item.abnormal ? '异常' : '正常'
+      statusText: item.status === 'unknown' || item.standardMatched === false ? '待配置' : (item.status === 'warning' || item.abnormal ? '异常' : '正常')
     }))
     const warning = String(status).toLowerCase() === 'warning' || items.some((item) => item.statusText === '异常')
     const diagnosis = (raw.diagnosis || []).map((item) => {
@@ -38,6 +41,7 @@ Page({
       items,
       diagnosis,
       summary: raw.summary || '',
+      standardWarnings: raw.standardWarnings || [],
       riskLabel: warning ? '预警' : '正常',
       riskClass: warning ? 'tag-warn' : 'tag-normal'
     }

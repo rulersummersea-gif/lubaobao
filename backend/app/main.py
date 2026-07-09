@@ -173,17 +173,33 @@ WATER_TEST_ITEMS = [
 ]
 
 
-WATER_QUALITY_LIMITS = [
+PRESSURE_SEGMENTS = [
+    {"minPressure": 0, "maxPressure": 1.0, "alkalinityMax": 26, "label": "P≤1.0MPa"},
+    {"minPressure": 1.0, "maxPressure": 1.6, "alkalinityMax": 24, "label": "1.0<P≤1.6MPa"},
+    {"minPressure": 1.6, "maxPressure": 2.5, "alkalinityMax": 16, "label": "1.6<P≤2.5MPa"},
+    {"minPressure": 2.5, "maxPressure": 3.8, "alkalinityMax": 12, "label": "2.5<P<3.8MPa"},
+]
+
+BASE_WATER_QUALITY_LIMITS = [
     {"code": "ph", "min": 8.5, "max": 10.5, "unit": "", "range": "8.5-10.5"},
     {"code": "phosphate", "min": 10, "max": 30, "unit": "mg/L", "range": "10-30 mg/L"},
     {"code": "sulfite", "min": 10, "max": 30, "unit": "mg/L", "range": "10-30 mg/L"},
-    {"code": "alkalinity", "min": 6, "max": 26, "unit": "mmol/L", "range": "6-26 mmol/L"},
+    {"code": "alkalinity", "min": 6, "max": None, "unit": "mmol/L", "range": ""},
     {"code": "chloride", "min": None, "max": 300, "unit": "mg/L", "range": "≤300 mg/L"},
     {"code": "hardness", "min": None, "max": 0.03, "unit": "mmol/L", "range": "≤0.03 mmol/L"},
 ]
 
+WATER_QUALITY_LIMITS = []
+for segment in PRESSURE_SEGMENTS:
+    for limit in BASE_WATER_QUALITY_LIMITS:
+        item = {**limit, "minPressure": segment["minPressure"], "maxPressure": segment["maxPressure"], "pressureLabel": segment["label"]}
+        if item["code"] == "alkalinity":
+            item["max"] = segment["alkalinityMax"]
+            item["range"] = f"6-{segment['alkalinityMax']} mmol/L"
+        WATER_QUALITY_LIMITS.append(item)
+
 STANDARD_SOURCE = "GB/T 1576 工业锅炉水质"
-STANDARD_NOTE = "工业蒸汽锅炉锅水/炉水，低压段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。"
+STANDARD_NOTE = "工业蒸汽锅炉锅水/炉水，按压力段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。"
 
 
 def encode_token_part(payload: bytes) -> str:
@@ -347,7 +363,7 @@ def seed_water_quality_limits(conn) -> None:
         INSERT INTO water_quality_limits(
           item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa,
           min_value, max_value, unit, display_range, standard_source, standard_note, enabled, created_at
-        ) VALUES(?, 'steam', 'boiler_water', 0, 3.8, ?, ?, ?, ?, ?, ?, 1, ?)
+        ) VALUES(?, 'steam', 'boiler_water', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
         ON DUPLICATE KEY UPDATE
           min_value = VALUES(min_value),
           max_value = VALUES(max_value),
@@ -362,7 +378,7 @@ def seed_water_quality_limits(conn) -> None:
         INSERT INTO water_quality_limits(
           item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa,
           min_value, max_value, unit, display_range, standard_source, standard_note, enabled, created_at
-        ) VALUES(?, 'steam', 'boiler_water', 0, 3.8, ?, ?, ?, ?, ?, ?, 1, ?)
+        ) VALUES(?, 'steam', 'boiler_water', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
         ON CONFLICT(item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa) DO UPDATE SET
           min_value = excluded.min_value,
           max_value = excluded.max_value,
@@ -378,6 +394,8 @@ def seed_water_quality_limits(conn) -> None:
             insert_sql,
             (
                 limit["code"],
+                limit["minPressure"],
+                limit["maxPressure"],
                 limit["min"],
                 limit["max"],
                 limit["unit"],
@@ -386,6 +404,31 @@ def seed_water_quality_limits(conn) -> None:
                 STANDARD_NOTE,
                 now(),
             ),
+        )
+
+
+def retire_legacy_broad_limits(conn) -> None:
+    legacy_ranges = {
+        "ph": "8.5-10.5",
+        "phosphate": "10-30 mg/L",
+        "sulfite": "10-30 mg/L",
+        "alkalinity": "6-26 mmol/L",
+        "chloride": "≤300 mg/L",
+        "hardness": "≤0.03 mmol/L",
+    }
+    for code, display_range in legacy_ranges.items():
+        conn.execute(
+            """
+            UPDATE water_quality_limits
+            SET enabled = 0
+            WHERE item_code = ?
+              AND boiler_type = 'steam'
+              AND sample_type = 'boiler_water'
+              AND pressure_min_mpa = 0
+              AND pressure_max_mpa = 3.8
+              AND display_range = ?
+            """,
+            (code, display_range),
         )
 
 
@@ -426,6 +469,7 @@ def seed_data(conn) -> None:
     seed_water_test_items(conn)
     ensure_schema_updates(conn)
     seed_water_quality_limits(conn)
+    retire_legacy_broad_limits(conn)
     conn.execute(
         """
         INSERT IGNORE INTO boilers(
@@ -1464,6 +1508,7 @@ def reset_water_quality_limits(authorization: Optional[str] = Header(None)):
     with db() as conn:
         ensure_schema_updates(conn)
         seed_water_quality_limits(conn)
+        retire_legacy_broad_limits(conn)
         conn.execute(
             "UPDATE water_quality_limits SET updated_at = ?, updated_by = ?, updated_by_name = ? WHERE boiler_type = 'steam' AND sample_type = 'boiler_water'",
             (now(), current_user.get("id"), current_user.get("name") or current_user.get("username")),
@@ -1478,21 +1523,77 @@ def parse_number(value: str) -> Optional[float]:
         return None
 
 
-def get_water_test_templates(conn) -> list[dict]:
+def pressure_segment_text(pressure_min, pressure_max) -> str:
+    pressure_min = decimal_to_number(pressure_min)
+    pressure_max = decimal_to_number(pressure_max)
+    if pressure_min is None and pressure_max is None:
+        return ""
+    if pressure_min is None:
+        return f"≤{pressure_max:g} MPa"
+    if pressure_max is None:
+        return f"P>{pressure_min:g} MPa"
+    if pressure_min == 0:
+        return f"P≤{pressure_max:g} MPa"
+    return f"{pressure_min:g}<P≤{pressure_max:g} MPa"
+
+
+def get_inspection_boiler_context(conn, inspection_id: int) -> dict:
+    row = row_to_dict(
+        conn.execute(
+            """
+            SELECT i.id AS inspectionId, i.boiler_id AS boilerId, b.name AS boilerName,
+                   b.rated_pressure AS ratedPressure
+            FROM inspections i
+            LEFT JOIN boilers b ON b.id = i.boiler_id
+            WHERE i.id = ?
+            """,
+            (inspection_id,),
+        ).fetchone()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="inspection not found")
+    pressure = parse_number(str(row.get("ratedPressure") or ""))
+    return {
+        "inspectionId": row["inspectionId"],
+        "boilerId": row["boilerId"],
+        "boilerName": row.get("boilerName") or "",
+        "ratedPressure": row.get("ratedPressure") or "",
+        "ratedPressureMpa": pressure,
+    }
+
+
+def get_water_test_templates(conn, rated_pressure_mpa: Optional[float]) -> list[dict]:
     rows = conn.execute(
         """
         SELECT i.code, i.name, i.priority, i.method, i.meaning, i.maintenance,
                l.min_value AS standardMin, l.max_value AS standardMax, l.unit,
                l.display_range AS normalRange, l.standard_source AS standardSource,
-               l.standard_note AS standardNote
+               l.standard_note AS standardNote, l.pressure_min_mpa AS pressureMinMpa,
+               l.pressure_max_mpa AS pressureMaxMpa
         FROM water_test_items i
-        LEFT JOIN water_quality_limits l ON l.item_code = i.code
-          AND l.boiler_type = 'steam'
-          AND l.sample_type = 'boiler_water'
-          AND l.enabled = 1
+        LEFT JOIN water_quality_limits l ON l.id = (
+          SELECT l2.id
+          FROM water_quality_limits l2
+          WHERE l2.item_code = i.code
+            AND l2.boiler_type = 'steam'
+            AND l2.sample_type = 'boiler_water'
+            AND l2.enabled = 1
+            AND ? IS NOT NULL
+            AND (
+              l2.pressure_min_mpa IS NULL
+              OR (l2.pressure_min_mpa = 0 AND l2.pressure_min_mpa <= ?)
+              OR l2.pressure_min_mpa < ?
+            )
+            AND (l2.pressure_max_mpa IS NULL OR l2.pressure_max_mpa >= ?)
+          ORDER BY COALESCE(l2.pressure_min_mpa, -999999) DESC,
+                   COALESCE(l2.pressure_max_mpa, 999999) ASC,
+                   l2.id ASC
+          LIMIT 1
+        )
         WHERE i.enabled = 1
         ORDER BY i.priority
-        """
+        """,
+        (rated_pressure_mpa, rated_pressure_mpa, rated_pressure_mpa, rated_pressure_mpa),
     )
     return [row_to_dict(row) for row in rows]
 
@@ -1521,7 +1622,14 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
         "chloride": "320",
         "hardness": "0.05",
     }
-    templates = get_water_test_templates(conn) if conn else [
+    context = get_inspection_boiler_context(conn, inspection_id) if conn else {
+        "inspectionId": inspection_id,
+        "boilerId": None,
+        "boilerName": "",
+        "ratedPressure": "",
+        "ratedPressureMpa": 1.25,
+    }
+    templates = get_water_test_templates(conn, context["ratedPressureMpa"]) if conn else [
         {
             **item,
             "standardMin": next((limit["min"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), None),
@@ -1530,6 +1638,8 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
             "normalRange": item["normalRange"],
             "standardSource": STANDARD_SOURCE,
             "standardNote": STANDARD_NOTE,
+            "pressureMinMpa": 0,
+            "pressureMaxMpa": 3.8,
         }
         for item in WATER_TEST_ITEMS
     ]
@@ -1538,7 +1648,9 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
         value = sample_values[template["code"]]
         standard_min = decimal_to_number(template.get("standardMin"))
         standard_max = decimal_to_number(template.get("standardMax"))
-        status = judge_item_status(value, standard_min, standard_max)
+        standard_missing = context["ratedPressureMpa"] is None or (standard_min is None and standard_max is None)
+        status = "unknown" if standard_missing else judge_item_status(value, standard_min, standard_max)
+        segment = pressure_segment_text(template.get("pressureMinMpa"), template.get("pressureMaxMpa"))
         items.append(
             {
                 "code": template["code"],
@@ -1548,20 +1660,36 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
                 "priority": template["priority"],
                 "method": template["method"],
                 "status": status,
-                "normalRange": template["normalRange"],
+                "normalRange": template.get("normalRange") or "未配置标准",
                 "standardMin": standard_min,
                 "standardMax": standard_max,
-                "standardSource": template.get("standardSource") or STANDARD_SOURCE,
-                "standardNote": template.get("standardNote") or STANDARD_NOTE,
+                "standardSource": "" if standard_missing else (template.get("standardSource") or STANDARD_SOURCE),
+                "standardNote": "未匹配到适用压力段标准" if standard_missing else (template.get("standardNote") or STANDARD_NOTE),
+                "pressureMinMpa": decimal_to_number(template.get("pressureMinMpa")),
+                "pressureMaxMpa": decimal_to_number(template.get("pressureMaxMpa")),
+                "pressureSegment": segment,
+                "ratedPressureMpa": context["ratedPressureMpa"],
+                "standardMatched": not standard_missing,
                 "meaning": template["meaning"],
                 "maintenance": template["maintenance"],
             }
         )
+    unmatched = [item["name"] for item in items if not item["standardMatched"]]
+    standard_warnings = []
+    if context["ratedPressureMpa"] is None:
+        standard_warnings.append("锅炉档案未填写额定压力，无法自动匹配压力段标准。")
+    if unmatched:
+        standard_warnings.append(f"{'、'.join(unmatched)}未匹配到适用压力段标准。")
     return {
         "inspectionId": inspection_id,
+        "boilerId": context["boilerId"],
+        "boilerName": context["boilerName"],
+        "ratedPressure": context["ratedPressure"],
+        "ratedPressureMpa": context["ratedPressureMpa"],
         "score": 74,
         "status": "done",
         "summary": "锅水检测包含6项：pH、磷酸根、氯离子、硬度存在预警，建议调整加药、检查软水器并加强排污后复测。",
+        "standardWarnings": standard_warnings,
         "items": items,
         "diagnosis": [
             {

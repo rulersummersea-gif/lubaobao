@@ -591,13 +591,15 @@ function renderInspectionDetail(detail) {
       <div class="detail-cell"><span>巡检ID</span><b>${esc(detail.inspectionId || '-')}</b></div>
       <div class="detail-cell"><span>状态</span><b>${tag(detail.status)}</b></div>
       <div class="detail-cell"><span>健康评分</span><b>${esc(detail.score || '-')}</b></div>
+      <div class="detail-cell"><span>额定压力</span><b>${detail.ratedPressureMpa ? esc(detail.ratedPressureMpa + ' MPa') : '-'}</b></div>
       <div class="detail-cell"><span>提交时间</span><b>${esc(detail.submittedAt || '-')}</b></div>
     </div>
     <div class="detail-cell" style="margin-bottom:12px;"><span>摘要</span><b>${esc(detail.summary || '暂无摘要')}</b></div>
+    ${(detail.standardWarnings || []).map((text) => `<div class="detail-cell" style="margin-bottom:8px;"><span>标准提示</span><b>${esc(text)}</b></div>`).join('')}
     <h3>检测明细</h3>
     <table>
-      <thead><tr><th>优先级</th><th>项目</th><th>检测值</th><th>状态</th><th>工具</th><th>正常范围</th><th>依据</th><th>维护建议</th></tr></thead>
-      <tbody>${items.map((item) => `<tr><td>${esc(item.priority || '-')}</td><td>${esc(item.name)}</td><td>${esc(item.value)}${item.unit ? ' ' + esc(item.unit) : ''}</td><td>${tag(item.status)}</td><td>${esc(item.method || '-')}</td><td>${esc(item.normalRange || '-')}</td><td>${esc(item.standardSource || '-')}</td><td>${esc(item.maintenance || item.meaning || '-')}</td></tr>`).join('') || '<tr><td colspan="8">暂无检测项</td></tr>'}</tbody>
+      <thead><tr><th>优先级</th><th>项目</th><th>检测值</th><th>状态</th><th>工具</th><th>正常范围</th><th>压力段</th><th>依据</th><th>维护建议</th></tr></thead>
+      <tbody>${items.map((item) => `<tr><td>${esc(item.priority || '-')}</td><td>${esc(item.name)}</td><td>${esc(item.value)}${item.unit ? ' ' + esc(item.unit) : ''}</td><td>${tag(item.status)}</td><td>${esc(item.method || '-')}</td><td>${esc(item.normalRange || '-')}</td><td>${esc(item.pressureSegment || '-')}</td><td>${esc(item.standardSource || item.standardNote || '-')}</td><td>${esc(item.maintenance || item.meaning || '-')}</td></tr>`).join('') || '<tr><td colspan="9">暂无检测项</td></tr>'}</tbody>
     </table>
     <h3>诊断建议</h3>
     <table>
