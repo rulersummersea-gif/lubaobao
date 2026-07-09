@@ -39,7 +39,8 @@
         <view wx:if="{{item.riskType}}" class="sub">风险：{{item.riskType}}</view>
         <view wx:if="{{item.relatedItemNames}}" class="sub">关联指标：{{item.relatedItemNames}}</view>
         <view wx:if="{{item.reason}}" class="sub">原因：{{item.reason}}</view>
-        <view wx:if="{{item.advice}}" class="sub">建议：{{item.advice}}</view>
+        <view wx:if="{{item.fieldAction}}" class="sub">现场处置：{{item.fieldAction}}</view>
+        <view wx:if="{{item.retestPlan}}" class="sub">复测要求：{{item.retestPlan}}</view>
       </view>
     </block>
   </view>

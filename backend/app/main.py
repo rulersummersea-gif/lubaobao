@@ -1640,6 +1640,9 @@ def build_diagnosis_item(
     title: str,
     reason: str,
     advice: str,
+    field_action: str,
+    retest_plan: str,
+    support_notice: str,
     related_items: list[str],
     item_map: dict,
 ) -> dict:
@@ -1650,6 +1653,9 @@ def build_diagnosis_item(
         "title": title,
         "reason": reason,
         "advice": advice,
+        "fieldAction": field_action,
+        "retestPlan": retest_plan,
+        "supportNotice": support_notice,
         "relatedItems": related_items,
         "relatedItemNames": related_item_names(item_map, related_items),
     }
@@ -1673,7 +1679,9 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
             "level": "high",
             "title": "结垢风险预警",
             "reason": "硬度偏高且磷酸根偏低，说明钙镁离子残留增加，同时防垢药剂余量不足。",
-            "advice": "优先检查软水器、补水硬度和防垢药剂投加；排污后复测硬度和磷酸根，必要时安排受热面沉积检查。",
+            "fieldAction": "检查软水器盐箱、再生状态和加药泵；按现场药剂方案补加防垢剂/磷酸盐药剂，并安排一次排污。",
+            "retestPlan": "处理后建议2小时内复测硬度、磷酸根和pH。",
+            "supportNotice": "后台提醒：若连续两次出现硬度偏高且磷酸根偏低，服务支持人员需复核软水器状态、补水硬度和防垢药剂方案。",
         },
         {
             "codes": ["ph", "sulfite"],
@@ -1683,7 +1691,9 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
             "level": "high",
             "title": "腐蚀风险预警",
             "reason": "pH偏低且亚硫酸根偏低，锅水保护性下降，氧腐蚀和酸性腐蚀风险上升。",
-            "advice": "复测pH和亚硫酸根，检查除氧剂、碱性药剂和加药泵状态，确认药箱浓度与投加节奏。",
+            "fieldAction": "检查碱性药剂、除氧剂药箱液位和加药泵运行状态；按现场方案补加碱性药剂和除氧剂。",
+            "retestPlan": "处理后建议2小时内复测pH、亚硫酸根和总碱度。",
+            "supportNotice": "后台提醒：若pH和亚硫酸根持续偏低，服务支持人员需复核加药配方、加药泵流量和除氧管理。",
         },
         {
             "codes": ["chloride", "alkalinity"],
@@ -1693,7 +1703,9 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
             "level": "warning",
             "title": "排污不足预警",
             "reason": "氯离子和总碱度同时偏高，提示锅水浓缩倍数偏高，可能存在排污不足。",
-            "advice": "加强连续排污或定期排污，排污后复测氯离子和总碱度，并复核补水水质。",
+            "fieldAction": "加强连续排污或安排一次定期排污；排污过程中注意按现场规程操作。",
+            "retestPlan": "排污后建议2小时内复测氯离子、总碱度和pH。",
+            "supportNotice": "后台提醒：若氯离子和总碱度持续偏高，服务支持人员需复核排污制度、补水水质和浓缩倍数。",
         },
         {
             "codes": ["phosphate", "sulfite"],
@@ -1703,7 +1715,9 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
             "level": "warning",
             "title": "加药过量预警",
             "reason": "磷酸根和亚硫酸根同时偏高，说明药剂余量偏多，盐分和排污负担可能上升。",
-            "advice": "下调防垢剂和除氧剂投加量，观察排污后数据变化，避免过度加药。",
+            "fieldAction": "暂缓或减少防垢剂、除氧剂投加，并安排一次适量排污。",
+            "retestPlan": "调整后建议2小时内复测磷酸根、亚硫酸根和氯离子。",
+            "supportNotice": "后台提醒：若药剂余量持续偏高，服务支持人员需复核加药泵频率、药液浓度和班次加药记录。",
         },
         {
             "codes": ["ph", "alkalinity"],
@@ -1713,7 +1727,9 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
             "level": "warning",
             "title": "汽水共腾风险预警",
             "reason": "pH和总碱度同时偏高，锅水起泡和蒸汽携水风险增加。",
-            "advice": "加强排污，复核碱性药剂投加，观察蒸汽品质和水位波动。",
+            "fieldAction": "加强排污，暂缓或减少碱性药剂投加，并检查药箱浓度。",
+            "retestPlan": "排污和调整加药后建议2小时内复测pH、总碱度和氯离子。",
+            "supportNotice": "后台提醒：若pH和总碱度持续偏高，服务支持人员需复核排污制度、碱性药剂方案和现场运行反馈。",
         },
     ]
 
@@ -1726,7 +1742,10 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
                     rule["level"],
                     rule["title"],
                     rule["reason"],
-                    rule["advice"],
+                    rule["fieldAction"],
+                    rule["fieldAction"],
+                    rule["retestPlan"],
+                    rule["supportNotice"],
                     rule["codes"],
                     item_map,
                 )
@@ -1734,24 +1753,31 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
             covered.update(rule["codes"])
 
     single_rules = {
-        ("ph", "low"): ("酸碱度偏低", "腐蚀风险", "pH偏低，锅水碱性保护不足。", "重新取样复测pH，检查碱性药剂投加和加药泵状态。"),
-        ("ph", "high"): ("酸碱度偏高", "碱腐蚀/共腾风险", "pH偏高，可能增加碱腐蚀和汽水共腾风险。", "适当加强排污，复核碱性药剂浓度和投加量。"),
-        ("phosphate", "low"): ("磷酸根偏低", "结垢风险", "磷酸根偏低，防垢药剂余量不足。", "按现场药剂方案小幅补加磷酸盐药剂，复测磷酸根和pH。"),
-        ("phosphate", "high"): ("磷酸根偏高", "加药过量风险", "磷酸根偏高，可能存在防垢剂过量。", "减少防垢剂投加并加强排污，复测磷酸根。"),
-        ("sulfite", "low"): ("亚硫酸根偏低", "腐蚀风险", "亚硫酸根偏低，除氧剂余量不足。", "检查除氧剂投加、药箱浓度和除氧设备运行状态。"),
-        ("sulfite", "high"): ("亚硫酸根偏高", "加药过量风险", "亚硫酸根偏高，可能增加盐分和排污负担。", "减少除氧剂投加量，排污后复测。"),
-        ("alkalinity", "low"): ("总碱度偏低", "保护不足风险", "总碱度偏低，锅水缓冲和防腐保护不足。", "复核碱性药剂投加，必要时调整加药量。"),
-        ("alkalinity", "high"): ("总碱度偏高", "汽水共腾风险", "总碱度偏高，起泡和汽水共腾风险上升。", "加强排污，复核碱性药剂投加和浓缩倍数。"),
-        ("chloride", "high"): ("氯离子偏高", "浓缩/点蚀风险", "氯离子偏高，提示浓缩程度偏高且点蚀风险增加。", "增加连续排污或安排定期排污，排污后复测氯离子和总碱度。"),
-        ("hardness", "high"): ("硬度偏高", "结垢风险", "硬度偏高，说明钙镁离子残留偏多。", "检查软水器再生盐、树脂状态和补水硬度，必要时检查受热面沉积。"),
+        ("ph", "low"): ("酸碱度偏低", "腐蚀风险", "pH偏低，锅水碱性保护不足。", "检查碱性药剂药箱液位和加药泵运行状态，按现场方案补加碱性药剂。", "建议2小时内复测pH和总碱度。", "后台提醒：若pH连续偏低，需复核碱性药剂方案和加药泵流量。"),
+        ("ph", "high"): ("酸碱度偏高", "碱腐蚀/共腾风险", "pH偏高，可能增加碱腐蚀和汽水共腾风险。", "加强排污，暂缓或减少碱性药剂投加，并检查药箱浓度。", "建议2小时内复测pH、总碱度和氯离子。", "后台提醒：若pH连续偏高，需复核排污制度和碱性药剂投加量。"),
+        ("phosphate", "low"): ("磷酸根偏低", "结垢风险", "磷酸根偏低，防垢药剂余量不足。", "检查防垢剂药箱液位和加药泵，按现场方案补加防垢剂/磷酸盐药剂。", "建议2小时内复测磷酸根和pH。", "后台提醒：若磷酸根连续偏低，需复核防垢剂浓度、泵量和加药频次。"),
+        ("phosphate", "high"): ("磷酸根偏高", "加药过量风险", "磷酸根偏高，可能存在防垢剂过量。", "暂缓或减少防垢剂投加，并安排一次适量排污。", "建议2小时内复测磷酸根和氯离子。", "后台提醒：若磷酸根连续偏高，需复核防垢剂投加方案。"),
+        ("sulfite", "low"): ("亚硫酸根偏低", "腐蚀风险", "亚硫酸根偏低，除氧剂余量不足。", "检查除氧剂药箱液位和加药泵，按现场方案补加除氧剂。", "建议2小时内复测亚硫酸根和pH。", "后台提醒：若亚硫酸根连续偏低，需复核除氧剂浓度、泵量和除氧管理。"),
+        ("sulfite", "high"): ("亚硫酸根偏高", "加药过量风险", "亚硫酸根偏高，可能增加盐分和排污负担。", "暂缓或减少除氧剂投加，并安排一次适量排污。", "建议2小时内复测亚硫酸根和氯离子。", "后台提醒：若亚硫酸根连续偏高，需复核除氧剂投加方案。"),
+        ("alkalinity", "low"): ("总碱度偏低", "保护不足风险", "总碱度偏低，锅水缓冲和防腐保护不足。", "检查碱性药剂药箱液位和加药泵，按现场方案补加碱性药剂。", "建议2小时内复测总碱度和pH。", "后台提醒：若总碱度连续偏低，需复核碱性药剂方案。"),
+        ("alkalinity", "high"): ("总碱度偏高", "汽水共腾风险", "总碱度偏高，起泡和汽水共腾风险上升。", "加强排污，暂缓或减少碱性药剂投加。", "建议2小时内复测总碱度、pH和氯离子。", "后台提醒：若总碱度连续偏高，需复核排污制度和碱性药剂方案。"),
+        ("chloride", "high"): ("氯离子偏高", "浓缩/点蚀风险", "氯离子偏高，提示浓缩程度偏高且点蚀风险增加。", "加强连续排污或安排一次定期排污。", "排污后建议2小时内复测氯离子、总碱度和pH。", "后台提醒：若氯离子连续偏高，需复核排污制度和补水水质。"),
+        ("hardness", "high"): ("硬度偏高", "结垢风险", "硬度偏高，说明钙镁离子残留偏多。", "检查软水器盐箱、再生状态和旁通阀状态，并确认防垢剂投加正常。", "建议2小时内复测硬度和磷酸根。", "后台提醒：若硬度连续偏高，需复核软水器运行、补水硬度和水处理方案。"),
     }
     for item in items:
         if item["code"] in covered or item.get("status") != "warning":
             continue
         direction = "low" if item_low(item) else "high" if item_high(item) else "warning"
-        title, risk_type, reason, advice = single_rules.get(
+        title, risk_type, reason, field_action, retest_plan, support_notice = single_rules.get(
             (item["code"], direction),
-            (f"{item['name']}异常", "单项异常", f"{item['name']}检测结果超出当前压力段建议范围。", item.get("maintenance") or "建议复测并结合现场运行状态处理。"),
+            (
+                f"{item['name']}异常",
+                "单项异常",
+                f"{item['name']}检测结果超出当前压力段建议范围。",
+                "换新试纸重新取样复测，并检查相关药剂、排污或软水器基础状态。",
+                f"建议2小时内复测{item['name']}。",
+                f"后台提醒：{item['name']}连续异常时，服务支持人员需复核现场处理记录。",
+            ),
         )
         diagnosis.append(
             build_diagnosis_item(
@@ -1760,7 +1786,10 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
                 "warning",
                 title,
                 reason,
-                advice,
+                field_action,
+                field_action,
+                retest_plan,
+                support_notice,
                 [item["code"]],
                 item_map,
             )
@@ -1775,6 +1804,9 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
                 "锅水状态正常",
                 "6项炉水/锅水试纸检测均在当前压力段建议范围内。",
                 "按计划继续巡检，保持现有加药、排污和软化水管理节奏。",
+                "按计划继续巡检，保持现有加药、排污和软化水管理节奏。",
+                "按计划进行下一次常规检测。",
+                "后台提醒：当前无需人工介入，继续观察趋势即可。",
                 [],
                 item_map,
             )

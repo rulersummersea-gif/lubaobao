@@ -42,12 +42,14 @@ Page({
         statusText: item.status === 'unknown' || item.standardMatched === false ? '待配置' : (item.status === 'warning' || item.abnormal ? '异常' : '正常')
       })),
       diagnosis: (raw.diagnosis || []).map((item) => {
-        if (typeof item === 'string') return { title: item, riskType: '', reason: '', advice: item, relatedItemNames: '' }
+        if (typeof item === 'string') return { title: item, riskType: '', reason: '', advice: item, fieldAction: item, retestPlan: '', relatedItemNames: '' }
         return {
           title: item.title || '诊断建议',
           riskType: item.riskType || '',
           reason: item.reason || '',
           advice: item.advice || item.title || '',
+          fieldAction: item.fieldAction || item.advice || '',
+          retestPlan: item.retestPlan || '',
           relatedItemNames: item.relatedItemNames || ''
         }
       })

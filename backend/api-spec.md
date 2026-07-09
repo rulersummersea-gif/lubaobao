@@ -167,12 +167,16 @@
   "level": "high",
   "title": "结垢风险预警",
   "reason": "硬度偏高且磷酸根偏低...",
-  "advice": "优先检查软水器...",
+  "advice": "检查软水器并补加防垢剂...",
+  "fieldAction": "检查软水器盐箱、再生状态和加药泵；按现场药剂方案补加防垢剂/磷酸盐药剂，并安排一次排污。",
+  "retestPlan": "处理后建议2小时内复测硬度、磷酸根和pH。",
+  "supportNotice": "后台提醒：若连续两次出现硬度偏高且磷酸根偏低，服务支持人员需复核软水器状态、补水硬度和防垢药剂方案。",
   "relatedItems": ["hardness", "phosphate"],
   "relatedItemNames": "磷酸根、硬度"
 }
 ```
 现有组合规则：硬度高+磷酸根低、pH低+亚硫酸根低、氯离子高+总碱度高、磷酸根高+亚硫酸根高、pH高+总碱度高；未命中组合时按单项异常生成建议。
+小程序端只展示 `fieldAction` 和 `retestPlan`，现场可执行动作限定为复测、排污、加药、药箱/加药泵/软水器基础检查。`supportNotice` 只在后台展示，由平台服务支持人员用于给出专业处理建议。
 
 ### GET `/water-quality-limits`
 后台检测标准管理列表，需要 `platform_admin` 或 `enterprise_admin`。

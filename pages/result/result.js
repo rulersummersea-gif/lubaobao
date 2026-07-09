@@ -29,13 +29,15 @@ Page({
     }))
     const warning = String(status).toLowerCase() === 'warning' || items.some((item) => item.statusText === '异常')
     const diagnosis = (raw.diagnosis || []).map((item) => {
-      if (typeof item === 'string') return { title: item, reason: '', advice: item }
+      if (typeof item === 'string') return { title: item, reason: '', advice: item, fieldAction: item, retestPlan: '', relatedItemNames: '' }
       return {
         title: item.title || item.advice || '诊断建议',
         riskType: item.riskType || '',
         level: item.level || '',
         reason: item.reason || '',
         advice: item.advice || item.title || '',
+        fieldAction: item.fieldAction || item.advice || '',
+        retestPlan: item.retestPlan || '',
         relatedItemNames: item.relatedItemNames || ''
       }
     })
