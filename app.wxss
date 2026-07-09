@@ -116,3 +116,75 @@ page {
   color: #475569;
   line-height: 1.6;
 }
+
+.action-card {
+  background: #f8fafc;
+  border: 2rpx solid #dbe3ef;
+  border-radius: 18rpx;
+  padding: 24rpx;
+  margin-top: 20rpx;
+}
+
+.action-head {
+  align-items: flex-start;
+  margin-bottom: 18rpx;
+}
+
+.action-title {
+  font-size: 34rpx;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.action-risk {
+  display: inline-block;
+  margin-top: 8rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.copy-btn {
+  flex: 0 0 auto;
+  min-width: 96rpx;
+  min-height: 64rpx;
+  padding: 12rpx 18rpx;
+  border-radius: 14rpx;
+  background: #e0f2fe;
+  color: #075985;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+}
+
+.action-line {
+  padding: 18rpx 0;
+  border-top: 1rpx solid #dbe3ef;
+}
+
+.action-primary {
+  background: #ecfdf5;
+  margin-left: -24rpx;
+  margin-right: -24rpx;
+  padding-left: 24rpx;
+  padding-right: 24rpx;
+}
+
+.action-label {
+  color: #0f172a;
+  font-size: 30rpx;
+  font-weight: 800;
+  line-height: 1.4;
+  margin-bottom: 6rpx;
+}
+
+.action-text {
+  color: #334155;
+  font-size: 31rpx;
+  line-height: 1.65;
+}

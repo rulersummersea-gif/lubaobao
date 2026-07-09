@@ -31,14 +31,31 @@
   </view>
   <view class="card">
     <view class="section-title">诊断建议</view>
-    <block wx:for="{{detail.diagnosis}}" wx:key="title">
-      <view class="list-item">
-        <view>{{item.title}}</view>
-        <view wx:if="{{item.riskType}}" class="sub">风险：{{item.riskType}}</view>
-        <view wx:if="{{item.relatedItemNames}}" class="sub">关联指标：{{item.relatedItemNames}}</view>
-        <view wx:if="{{item.reason}}" class="sub">原因：{{item.reason}}</view>
-        <view wx:if="{{item.fieldAction}}" class="sub">现场处置：{{item.fieldAction}}</view>
-        <view wx:if="{{item.retestPlan}}" class="sub">复测要求：{{item.retestPlan}}</view>
+    <block wx:for="{{detail.diagnosis}}" wx:key="title" wx:for-index="index">
+      <view class="action-card">
+        <view class="row action-head">
+          <view>
+            <view class="action-title">{{item.title}}</view>
+            <view wx:if="{{item.riskType}}" class="action-risk">{{item.riskType}}</view>
+          </view>
+          <view class="copy-btn" data-index="{{index}}" bindtap="copyAction">复制</view>
+        </view>
+        <view wx:if="{{item.relatedItemNames}}" class="action-line">
+          <view class="action-label">关联指标</view>
+          <view class="action-text">{{item.relatedItemNames}}</view>
+        </view>
+        <view wx:if="{{item.reason}}" class="action-line">
+          <view class="action-label">原因</view>
+          <view class="action-text">{{item.reason}}</view>
+        </view>
+        <view wx:if="{{item.fieldAction}}" class="action-line action-primary">
+          <view class="action-label">现场处置</view>
+          <view class="action-text">{{item.fieldAction}}</view>
+        </view>
+        <view wx:if="{{item.retestPlan}}" class="action-line">
+          <view class="action-label">复测要求</view>
+          <view class="action-text">{{item.retestPlan}}</view>
+        </view>
       </view>
     </block>
   </view>

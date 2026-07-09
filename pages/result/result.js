@@ -29,8 +29,8 @@ Page({
     }))
     const warning = String(status).toLowerCase() === 'warning' || items.some((item) => item.statusText === '异常')
     const diagnosis = (raw.diagnosis || []).map((item) => {
-      if (typeof item === 'string') return { title: item, reason: '', advice: item, fieldAction: item, retestPlan: '', relatedItemNames: '' }
-      return {
+      if (typeof item === 'string') return { title: item, reason: '', advice: item, fieldAction: item, retestPlan: '', relatedItemNames: '', actionText: item }
+      const normalized = {
         title: item.title || item.advice || '诊断建议',
         riskType: item.riskType || '',
         level: item.level || '',
@@ -40,6 +40,8 @@ Page({
         retestPlan: item.retestPlan || '',
         relatedItemNames: item.relatedItemNames || ''
       }
+      normalized.actionText = this.buildActionText(normalized)
+      return normalized
     })
     return {
       ...raw,
@@ -50,6 +52,25 @@ Page({
       riskLabel: warning ? '预警' : '正常',
       riskClass: warning ? 'tag-warn' : 'tag-normal'
     }
+  },
+
+  buildActionText(item) {
+    return [
+      item.title,
+      item.relatedItemNames ? `关联指标：${item.relatedItemNames}` : '',
+      item.fieldAction ? `现场处置：${item.fieldAction}` : '',
+      item.retestPlan ? `复测要求：${item.retestPlan}` : ''
+    ].filter(Boolean).join('\n')
+  },
+
+  copyAction(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    const item = this.data.result.diagnosis[index]
+    if (!item || !item.actionText) return ui.error('暂无可复制内容')
+    wx.setClipboardData({
+      data: item.actionText,
+      success: () => ui.success('已复制')
+    })
   },
 
   async submitRecord() {

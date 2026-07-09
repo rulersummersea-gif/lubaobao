@@ -42,8 +42,8 @@ Page({
         statusText: item.status === 'unknown' || item.standardMatched === false ? '待配置' : (item.status === 'warning' || item.abnormal ? '异常' : '正常')
       })),
       diagnosis: (raw.diagnosis || []).map((item) => {
-        if (typeof item === 'string') return { title: item, riskType: '', reason: '', advice: item, fieldAction: item, retestPlan: '', relatedItemNames: '' }
-        return {
+        if (typeof item === 'string') return { title: item, riskType: '', reason: '', advice: item, fieldAction: item, retestPlan: '', relatedItemNames: '', actionText: item }
+        const normalized = {
           title: item.title || '诊断建议',
           riskType: item.riskType || '',
           reason: item.reason || '',
@@ -52,7 +52,28 @@ Page({
           retestPlan: item.retestPlan || '',
           relatedItemNames: item.relatedItemNames || ''
         }
+        normalized.actionText = this.buildActionText(normalized)
+        return normalized
       })
     }
+  },
+
+  buildActionText(item) {
+    return [
+      item.title,
+      item.relatedItemNames ? `关联指标：${item.relatedItemNames}` : '',
+      item.fieldAction ? `现场处置：${item.fieldAction}` : '',
+      item.retestPlan ? `复测要求：${item.retestPlan}` : ''
+    ].filter(Boolean).join('\n')
+  },
+
+  copyAction(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    const item = this.data.detail.diagnosis[index]
+    if (!item || !item.actionText) return ui.error('暂无可复制内容')
+    wx.setClipboardData({
+      data: item.actionText,
+      success: () => ui.success('已复制')
+    })
   }
 })
