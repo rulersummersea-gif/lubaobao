@@ -21,8 +21,8 @@ module.exports = {
   activateMaterialPack({ packId, boilerId }) {
     return wait({ success: true, packId, boilerId, status: 'activated' })
   },
-  createInspection({ boilerId, materialPackId }) {
-    return wait({ inspectionId: Date.now(), boilerId, materialPackId, status: 'pending_upload' })
+  createInspection({ boilerId, materialPackId, inspectionType, retestTaskId }) {
+    return wait({ inspectionId: Date.now(), boilerId, materialPackId, inspectionType, retestTaskId, status: 'pending_upload' })
   },
   recognizeInspection() {
     return wait(mockResult)
@@ -48,6 +48,16 @@ module.exports = {
     const task = mockRetestTasks.find(item => String(item.id) === id)
     if (task) task.status = 'done'
     return wait({ id, status: 'done' })
+  },
+  resolveRetestTask(url, data) {
+    const id = String(url).split('/')[2]
+    const task = mockRetestTasks.find(item => String(item.id) === id)
+    if (task) {
+      task.status = data.resolutionType === 'retest' ? 'retested' : data.resolutionType === 'no_retest' ? 'no_retest' : 'done'
+      task.resolutionType = data.resolutionType
+      task.resolutionNote = data.note || ''
+    }
+    return wait({ id, status: task ? task.status : 'done', resolutionType: data.resolutionType })
   },
   getReport() {
     return wait({ score: 72, abnormalCount: 5, inspectionCount: 18, suggestions: ['检查软化器再生', '补加药剂并2小时复测'] })

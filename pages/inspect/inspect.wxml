@@ -1,7 +1,10 @@
 <view class="container">
   <view class="card">
     <view class="title">发起巡检</view>
-    <view class="sub">当前锅炉：{{currentBoiler ? currentBoiler.name : '未选择'}}</view>
+    <view wx:if="{{retestTask}}" class="tag tag-warn" style="margin-top:10rpx;">复测任务</view>
+    <view wx:if="{{retestTask}}" class="sub">复测原因：{{retestTask.title}}</view>
+    <view wx:if="{{retestTask.relatedItemNames}}" class="sub">复测项目：{{retestTask.relatedItemNames}}</view>
+    <view class="sub">当前锅炉：{{retestTask ? retestTask.boilerName : (currentBoiler ? currentBoiler.name : '未选择')}}</view>
     <view class="btn-secondary" bindtap="goChooseBoiler">选择锅炉</view>
   </view>
 
@@ -20,6 +23,6 @@
   </view>
 
   <view class="card">
-    <view class="btn-primary" bindtap="startInspection">开始巡检</view>
+    <view class="btn-primary" bindtap="startInspection">{{retestTask ? '提交复测' : '开始巡检'}}</view>
   </view>
 </view>

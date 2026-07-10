@@ -1,5 +1,5 @@
 const { request } = require('../../api/index')
-const { getRetestTasks, completeRetestTask } = require('../../api/inspection')
+const { getRetestTasks, completeRetestTask, resolveRetestTask } = require('../../api/inspection')
 const ui = require('../../utils/ui')
 const retest = require('../../utils/retest')
 Page({
@@ -42,6 +42,25 @@ Page({
       retest.completeReminder(id)
     }
     ui.success('已完成')
+    this.loadAlerts()
+  },
+  startRetest(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    const item = this.data.list[index]
+    if (!item) return ui.error('缺少复测任务')
+    wx.setStorageSync('BG_RETEST_TASK', item)
+    wx.switchTab({ url: '/pages/inspect/inspect' })
+  },
+  async skipRetest(e) {
+    const id = e.currentTarget.dataset.id
+    const isLocal = String(id).indexOf('-') >= 0
+    try {
+      if (isLocal) retest.completeReminder(id)
+      else await resolveRetestTask(id, { resolutionType: 'no_retest', note: '现场选择暂不复测' })
+    } catch (taskError) {
+      retest.completeReminder(id)
+    }
+    ui.success('已记录')
     this.loadAlerts()
   },
   copyAction(e) {

@@ -16,6 +16,8 @@
     </view>
     <view wx:if="{{item.source !== 'remote'}}" class="alert-actions">
       <view class="alert-btn secondary" data-index="{{index}}" bindtap="copyAction">复制处置</view>
+      <view class="alert-btn secondary" data-index="{{index}}" bindtap="startRetest">去复测</view>
+      <view class="alert-btn secondary" data-id="{{item.id}}" bindtap="skipRetest">暂不复测</view>
       <view class="alert-btn primary" data-id="{{item.id}}" bindtap="completeRetest">已完成</view>
     </view>
   </view>

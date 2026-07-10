@@ -11,12 +11,14 @@ Page({
     materialPackId: null,
     materialPackCode: '',
     previewImage: '',
+    retestTask: null,
     submitting: false
   },
 
   onShow() {
     const state = getState()
-    this.setData({ currentBoiler: state.currentBoiler || null })
+    const retestTask = wx.getStorageSync('BG_RETEST_TASK') || null
+    this.setData({ currentBoiler: state.currentBoiler || null, retestTask })
   },
 
   goChooseBoiler() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
@@ -80,7 +82,9 @@ Page({
   async startInspection() {
     if (this.data.submitting) return
     const state = getState()
-    if (!state.currentBoiler) return ui.error('请先选择锅炉')
+    const retestTask = this.data.retestTask
+    const boilerId = (retestTask && retestTask.boilerId) || (state.currentBoiler && state.currentBoiler.id)
+    if (!boilerId) return ui.error('请先选择锅炉')
     if (!this.data.materialPackCode) return ui.error('请先扫码材料包')
     if (!this.data.previewImage) return ui.error('请先拍照')
 
@@ -88,9 +92,10 @@ Page({
     try {
       ui.showLoading('创建巡检中')
       const created = await createInspection({
-        boilerId: state.currentBoiler.id,
+        boilerId,
         materialPackId: this.data.materialPackId,
-        inspectionType: 'daily'
+        inspectionType: retestTask ? 'retest' : 'daily',
+        retestTaskId: retestTask ? retestTask.id : null
       })
       const inspectionId = created.inspectionId || created.id
       if (!inspectionId) throw new Error('创建巡检失败：缺少inspectionId')
@@ -101,6 +106,7 @@ Page({
 
       wx.setStorageSync('BG_LAST_RESULT', result.result || result)
       wx.setStorageSync('BG_LAST_INSPECTION_ID', inspectionId)
+      if (retestTask) wx.removeStorageSync('BG_RETEST_TASK')
       wx.navigateTo({ url: '/pages/recognizing/recognizing' })
     } catch (e) {
       ui.error(e.message || '巡检失败')

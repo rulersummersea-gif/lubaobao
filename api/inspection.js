@@ -44,6 +44,10 @@ function completeRetestTask(id) {
   return request({ url: `/retest-tasks/${id}/complete`, method: 'POST', data: {} })
 }
 
+function resolveRetestTask(id, data) {
+  return request({ url: `/retest-tasks/${id}/resolve`, method: 'POST', data })
+}
+
 module.exports = {
   createInspection,
   uploadImage,
@@ -53,5 +57,6 @@ module.exports = {
   getRecords,
   getRecordDetail,
   getRetestTasks,
-  completeRetestTask
+  completeRetestTask,
+  resolveRetestTask
 }

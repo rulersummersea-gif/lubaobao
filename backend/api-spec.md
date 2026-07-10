@@ -127,8 +127,9 @@
 ## 4. 巡检
 ### POST `/inspections`
 ```json
-{ "boilerId": 1001, "materialPackId": 5001, "inspectionType": "daily" }
+{ "boilerId": 1001, "materialPackId": 5001, "inspectionType": "daily", "retestTaskId": null }
 ```
+复测巡检时传 `inspectionType: "retest"` 和对应 `retestTaskId`，识别完成后会自动回填到原复测任务。
 
 ### POST `/inspections/create`
 同 `/inspections`，作为当前灰测兼容别名。
@@ -231,6 +232,13 @@
 
 ### POST `/retest-tasks/{id}/complete`
 标记复测任务已完成。小程序告警页使用该接口关闭待复测提醒。
+
+### POST `/retest-tasks/{id}/resolve`
+记录复测任务处理结果。处理逻辑不写死，可提交复测，也可不复测。
+```json
+{ "resolutionType": "no_retest", "note": "现场暂不复测，由后台继续跟进" }
+```
+提交复测结果时，创建巡检可传 `inspectionType: "retest"` 和 `retestTaskId`；识别完成后系统会自动回填 `retestInspectionId`，任务状态变为 `retested`。
 
 ### POST `/retest-tasks/{id}/service-advice`
 后台服务支持人员保存专业处理意见，需要 `platform_admin` 或 `enterprise_admin`。

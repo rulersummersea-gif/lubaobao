@@ -461,6 +461,11 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "retest_tasks", "service_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "retest_tasks", "service_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "retest_tasks", "service_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "retest_inspection_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "retest_tasks", "resolution_type", "VARCHAR(32) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "resolution_note", "VARCHAR(512) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "resolved_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "inspections", "retest_task_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
 
 
 def seed_data(conn) -> None:
@@ -600,6 +605,7 @@ def init_sqlite() -> None:
               boiler_id INTEGER NOT NULL,
               material_pack_id INTEGER NOT NULL,
               inspection_type TEXT NOT NULL DEFAULT 'daily',
+              retest_task_id INTEGER,
               image_url TEXT,
               status TEXT NOT NULL DEFAULT 'created',
               score INTEGER,
@@ -643,6 +649,10 @@ def init_sqlite() -> None:
               service_by INTEGER,
               service_by_name TEXT,
               service_at TEXT,
+              retest_inspection_id INTEGER,
+              resolution_type TEXT,
+              resolution_note TEXT,
+              resolved_at TEXT,
               related_item_names TEXT,
               action_text TEXT,
               status TEXT NOT NULL DEFAULT 'pending',
@@ -753,6 +763,7 @@ def init_mysql() -> None:
               boiler_id BIGINT NOT NULL,
               material_pack_id BIGINT NOT NULL,
               inspection_type VARCHAR(32) NOT NULL DEFAULT 'daily',
+              retest_task_id BIGINT NULL,
               image_url VARCHAR(512) NULL,
               status VARCHAR(20) NOT NULL DEFAULT 'created',
               score INT NULL,
@@ -799,6 +810,10 @@ def init_mysql() -> None:
               service_by BIGINT NULL,
               service_by_name VARCHAR(64) NULL,
               service_at DATETIME NULL,
+              retest_inspection_id BIGINT NULL,
+              resolution_type VARCHAR(32) NULL,
+              resolution_note VARCHAR(512) NULL,
+              resolved_at DATETIME NULL,
               related_item_names VARCHAR(255) NULL,
               action_text TEXT NULL,
               status VARCHAR(20) NOT NULL DEFAULT 'pending',
@@ -940,6 +955,7 @@ class InspectionCreateReq(BaseModel):
     boilerId: int
     materialPackId: int
     inspectionType: str = "daily"
+    retestTaskId: Optional[int] = None
 
 
 class RecognizeReq(BaseModel):
@@ -957,6 +973,12 @@ class CompleteRetestTaskReq(BaseModel):
 
 class RetestServiceAdviceReq(BaseModel):
     serviceAdvice: str
+
+
+class RetestResolutionReq(BaseModel):
+    resolutionType: str
+    note: Optional[str] = ""
+    retestInspectionId: Optional[int] = None
 
 
 @app.get("/")
@@ -1130,6 +1152,21 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
         )
 
 
+def backfill_retest_result(conn, inspection_id: int) -> None:
+    inspection = row_to_dict(conn.execute("SELECT retest_task_id FROM inspections WHERE id = ?", (inspection_id,)).fetchone())
+    if not inspection or not inspection.get("retest_task_id"):
+        return
+    conn.execute(
+        """
+        UPDATE retest_tasks
+        SET retest_inspection_id = ?, status = 'retested', resolution_type = 'retest',
+            resolution_note = '已提交复测结果', resolved_at = ?
+        WHERE id = ?
+        """,
+        (inspection_id, now(), inspection["retest_task_id"]),
+    )
+
+
 def retest_task_to_dict(row) -> dict:
     item = row_to_dict(row)
     return {
@@ -1152,6 +1189,10 @@ def retest_task_to_dict(row) -> dict:
         "serviceBy": item.get("service_by"),
         "serviceByName": item.get("service_by_name") or "",
         "serviceAt": item.get("service_at"),
+        "retestInspectionId": item.get("retest_inspection_id"),
+        "resolutionType": item.get("resolution_type") or "",
+        "resolutionNote": item.get("resolution_note") or "",
+        "resolvedAt": item.get("resolved_at"),
         "relatedItemNames": item["related_item_names"],
         "actionText": item["action_text"],
         "status": item["status"],
@@ -2162,12 +2203,18 @@ def create_inspection(req: InspectionCreateReq):
         pack = conn.execute("SELECT * FROM material_packs WHERE id = ?", (req.materialPackId,)).fetchone()
         if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
+        if req.retestTaskId:
+            task = row_to_dict(conn.execute("SELECT * FROM retest_tasks WHERE id = ?", (req.retestTaskId,)).fetchone())
+            if not task:
+                raise HTTPException(status_code=404, detail="复测任务不存在")
+            if task["boiler_id"] and int(task["boiler_id"]) != int(req.boilerId):
+                raise HTTPException(status_code=400, detail="复测任务与所选锅炉不一致")
         cur = conn.execute(
             """
-            INSERT INTO inspections(enterprise_id, boiler_id, material_pack_id, inspection_type, status, created_at)
-            VALUES(?, ?, ?, ?, 'created', ?)
+            INSERT INTO inspections(enterprise_id, boiler_id, material_pack_id, inspection_type, retest_task_id, status, created_at)
+            VALUES(?, ?, ?, ?, ?, 'created', ?)
             """,
-            (boiler["enterprise_id"], req.boilerId, req.materialPackId, req.inspectionType, now()),
+            (boiler["enterprise_id"], req.boilerId, req.materialPackId, req.inspectionType, req.retestTaskId, now()),
         )
         return {"inspectionId": cur.lastrowid, "boilerId": req.boilerId, "materialPackId": req.materialPackId, "status": "created"}
 
@@ -2227,6 +2274,7 @@ def recognize(req: RecognizeReq):
             raise HTTPException(status_code=404, detail="inspection not found")
         save_inspection_test_results(conn, req.inspectionId, result["items"])
         create_retest_tasks_from_result(conn, result)
+        backfill_retest_result(conn, req.inspectionId)
     return {"inspectionId": req.inspectionId, "status": "done", "result": result}
 
 
@@ -2282,12 +2330,38 @@ def list_retest_tasks(enterpriseId: int = 1, status: str = "pending"):
 def complete_retest_task(task_id: int, req: CompleteRetestTaskReq = CompleteRetestTaskReq()):
     with db() as conn:
         cur = conn.execute(
-            "UPDATE retest_tasks SET status = 'done', completed_at = ? WHERE id = ?",
-            (now(), task_id),
+            """
+            UPDATE retest_tasks
+            SET status = 'done', resolution_type = COALESCE(resolution_type, 'manual_complete'),
+                resolution_note = ?, resolved_at = COALESCE(resolved_at, ?), completed_at = ?
+            WHERE id = ?
+            """,
+            (req.remark or "人工标记完成", now(), now(), task_id),
         )
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="retest task not found")
     return {"id": task_id, "status": "done"}
+
+
+@app.post("/retest-tasks/{task_id}/resolve")
+def resolve_retest_task(task_id: int, req: RetestResolutionReq):
+    allowed = {"retest", "no_retest", "manual_complete"}
+    if req.resolutionType not in allowed:
+        raise HTTPException(status_code=400, detail="resolutionType不合法")
+    status = "retested" if req.resolutionType == "retest" else "no_retest" if req.resolutionType == "no_retest" else "done"
+    with db() as conn:
+        cur = conn.execute(
+            """
+            UPDATE retest_tasks
+            SET status = ?, resolution_type = ?, resolution_note = ?, retest_inspection_id = ?,
+                resolved_at = ?, completed_at = CASE WHEN ? IN ('no_retest', 'manual_complete') THEN ? ELSE completed_at END
+            WHERE id = ?
+            """,
+            (status, req.resolutionType, req.note or "", req.retestInspectionId, now(), req.resolutionType, now(), task_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="retest task not found")
+    return {"id": task_id, "status": status, "resolutionType": req.resolutionType}
 
 
 @app.post("/retest-tasks/{task_id}/service-advice")
