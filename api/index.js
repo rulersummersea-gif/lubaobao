@@ -19,8 +19,10 @@ function request({ url, method = 'GET', data = {} }) {
       '/records': () => mock.getRecords(),
       '/record-detail': () => mock.getRecordDetail(data.id),
       '/inspections/submit': () => mock.submitInspection(data),
+      '/retest-tasks': () => mock.getRetestTasks(),
       '/report': () => mock.getReport()
     }
+    if (url.indexOf('/retest-tasks/') === 0 && url.indexOf('/complete') > 0) return mock.completeRetestTask(url)
     const handler = routeMap[url]
     if (!handler) return Promise.reject(new Error('未定义的Mock接口: ' + url))
     return handler()

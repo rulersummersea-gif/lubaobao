@@ -1,4 +1,5 @@
 const { request } = require('../../api/index')
+const { getRetestTasks, completeRetestTask } = require('../../api/inspection')
 const ui = require('../../utils/ui')
 const retest = require('../../utils/retest')
 Page({
@@ -10,7 +11,11 @@ Page({
     try {
       ui.showLoading('加载告警')
       const dashboard = await request({ url: '/dashboard' })
-      const localAlerts = retest.getPendingReminders()
+      let localAlerts = retest.getPendingReminders()
+      try {
+        const serverTasks = await getRetestTasks({ status: 'pending' })
+        if (serverTasks) localAlerts = serverTasks
+      } catch (taskError) {}
       const remoteAlerts = (dashboard.alerts || []).map((item, index) => ({
         id: `remote-${index}`,
         title: item.title || item.boilerName || '异常提醒',
@@ -20,18 +25,24 @@ Page({
         level: item.level || 'warning',
         source: 'remote'
       }))
-      this.setData({ list: localAlerts.concat(remoteAlerts) })
+      this.setData({ list: localAlerts.length ? localAlerts : remoteAlerts })
     } catch (e) {
       ui.error('告警加载失败')
     } finally {
       ui.hideLoading()
     }
   },
-  completeRetest(e) {
+  async completeRetest(e) {
     const id = e.currentTarget.dataset.id
-    retest.completeReminder(id)
+    const isLocal = String(id).indexOf('-') >= 0
+    try {
+      if (isLocal) retest.completeReminder(id)
+      else await completeRetestTask(id)
+    } catch (taskError) {
+      retest.completeReminder(id)
+    }
     ui.success('已完成')
-    this.setData({ list: retest.getPendingReminders().concat(this.data.list.filter((item) => item.source === 'remote')) })
+    this.loadAlerts()
   },
   copyAction(e) {
     const index = Number(e.currentTarget.dataset.index)

@@ -620,6 +620,26 @@ def init_sqlite() -> None:
               created_at TEXT NOT NULL,
               UNIQUE(inspection_id, item_code)
             );
+            CREATE TABLE IF NOT EXISTS retest_tasks (
+              id INTEGER PRIMARY KEY,
+              enterprise_id INTEGER NOT NULL,
+              inspection_id INTEGER NOT NULL,
+              boiler_id INTEGER,
+              boiler_name TEXT,
+              risk_code TEXT NOT NULL,
+              risk_type TEXT,
+              level TEXT NOT NULL DEFAULT 'warning',
+              title TEXT NOT NULL,
+              description TEXT,
+              field_action TEXT,
+              retest_plan TEXT,
+              related_item_names TEXT,
+              action_text TEXT,
+              status TEXT NOT NULL DEFAULT 'pending',
+              created_at TEXT NOT NULL,
+              completed_at TEXT,
+              UNIQUE(inspection_id, risk_code)
+            );
             """
         )
         seed_data(conn)
@@ -750,6 +770,28 @@ def init_mysql() -> None:
               created_at DATETIME NOT NULL,
               UNIQUE KEY uk_inspection_item (inspection_id, item_code),
               KEY idx_test_results_inspection (inspection_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS retest_tasks (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              enterprise_id BIGINT NOT NULL,
+              inspection_id BIGINT NOT NULL,
+              boiler_id BIGINT NULL,
+              boiler_name VARCHAR(128) NULL,
+              risk_code VARCHAR(64) NOT NULL,
+              risk_type VARCHAR(64) NULL,
+              level VARCHAR(20) NOT NULL DEFAULT 'warning',
+              title VARCHAR(128) NOT NULL,
+              description VARCHAR(512) NULL,
+              field_action VARCHAR(512) NULL,
+              retest_plan VARCHAR(512) NULL,
+              related_item_names VARCHAR(255) NULL,
+              action_text TEXT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'pending',
+              created_at DATETIME NOT NULL,
+              completed_at DATETIME NULL,
+              UNIQUE KEY uk_retest_inspection_risk (inspection_id, risk_code),
+              KEY idx_retest_enterprise_status (enterprise_id, status),
+              KEY idx_retest_inspection (inspection_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
@@ -894,6 +936,10 @@ class SubmitReq(BaseModel):
     remark: Optional[str] = ""
 
 
+class CompleteRetestTaskReq(BaseModel):
+    remark: Optional[str] = ""
+
+
 @app.get("/")
 def root():
     return {
@@ -916,6 +962,15 @@ def dashboard(enterpriseId: int = 1):
         boiler_count = conn.execute("SELECT COUNT(*) AS c FROM boilers WHERE enterprise_id = ?", (enterpriseId,)).fetchone()["c"]
         pack_count = conn.execute("SELECT COUNT(*) AS c FROM material_packs WHERE enterprise_id = ?", (enterpriseId,)).fetchone()["c"]
         inspection_count = conn.execute("SELECT COUNT(*) AS c FROM inspections WHERE enterprise_id = ?", (enterpriseId,)).fetchone()["c"]
+        retest_rows = conn.execute(
+            """
+            SELECT title, retest_plan AS retestPlan, related_item_names AS relatedItemNames, level
+            FROM retest_tasks
+            WHERE enterprise_id = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 3
+            """,
+            (enterpriseId,),
+        ).fetchall()
         latest = row_to_dict(
             conn.execute(
                 """
@@ -927,10 +982,20 @@ def dashboard(enterpriseId: int = 1):
                 (enterpriseId,),
             ).fetchone()
         )
-    alerts = []
+    alerts = [
+        {
+            "title": row["title"],
+            "desc": row["retestPlan"] or "建议复测确认",
+            "relatedItemNames": row["relatedItemNames"],
+            "level": row["level"] or "warning",
+        }
+        for row in retest_rows
+    ]
     if latest and latest.get("resultJson"):
         result = json.loads(latest["resultJson"])
         for item in result.get("items", []):
+            if len(alerts) >= 3:
+                break
             if item.get("status") == "warning":
                 alerts.append(
                     {
@@ -949,6 +1014,122 @@ def dashboard(enterpriseId: int = 1):
         ],
         "alerts": alerts[:3],
         "latest": latest or {},
+    }
+
+
+def diagnosis_action_text(item: dict) -> str:
+    return "\n".join(
+        text
+        for text in [
+            item.get("title"),
+            f"关联指标：{item.get('relatedItemNames')}" if item.get("relatedItemNames") else "",
+            f"现场处置：{item.get('fieldAction')}" if item.get("fieldAction") else "",
+            f"复测要求：{item.get('retestPlan')}" if item.get("retestPlan") else "",
+        ]
+        if text
+    )
+
+
+def create_retest_tasks_from_result(conn, result: dict) -> None:
+    inspection_id = result.get("inspectionId")
+    if not inspection_id:
+        return
+    inspection = row_to_dict(
+        conn.execute(
+            """
+            SELECT i.enterprise_id AS enterpriseId, i.boiler_id AS boilerId, b.name AS boilerName
+            FROM inspections i
+            LEFT JOIN boilers b ON b.id = i.boiler_id
+            WHERE i.id = ?
+            """,
+            (inspection_id,),
+        ).fetchone()
+    )
+    if not inspection:
+        return
+    insert_sql = (
+        """
+        INSERT INTO retest_tasks(
+          enterprise_id, inspection_id, boiler_id, boiler_name, risk_code, risk_type,
+          level, title, description, field_action, retest_plan, related_item_names,
+          action_text, status, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        ON DUPLICATE KEY UPDATE
+          risk_type = VALUES(risk_type),
+          level = VALUES(level),
+          title = VALUES(title),
+          description = VALUES(description),
+          field_action = VALUES(field_action),
+          retest_plan = VALUES(retest_plan),
+          related_item_names = VALUES(related_item_names),
+          action_text = VALUES(action_text),
+          status = IF(status = 'done', status, 'pending')
+        """
+        if DB_DRIVER == "mysql"
+        else """
+        INSERT INTO retest_tasks(
+          enterprise_id, inspection_id, boiler_id, boiler_name, risk_code, risk_type,
+          level, title, description, field_action, retest_plan, related_item_names,
+          action_text, status, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        ON CONFLICT(inspection_id, risk_code) DO UPDATE SET
+          risk_type = excluded.risk_type,
+          level = excluded.level,
+          title = excluded.title,
+          description = excluded.description,
+          field_action = excluded.field_action,
+          retest_plan = excluded.retest_plan,
+          related_item_names = excluded.related_item_names,
+          action_text = excluded.action_text,
+          status = CASE WHEN retest_tasks.status = 'done' THEN retest_tasks.status ELSE 'pending' END
+        """
+    )
+    for index, item in enumerate(result.get("diagnosis", [])):
+        if not item.get("retestPlan") or item.get("riskCode") == "normal":
+            continue
+        conn.execute(
+            insert_sql,
+            (
+                inspection["enterpriseId"],
+                inspection_id,
+                inspection.get("boilerId") or result.get("boilerId"),
+                inspection.get("boilerName") or result.get("boilerName"),
+                item.get("riskCode") or f"risk_{index}",
+                item.get("riskType") or "",
+                item.get("level") or "warning",
+                item.get("title") or "复测提醒",
+                item.get("reason") or "",
+                item.get("fieldAction") or item.get("advice") or "",
+                item.get("retestPlan") or "",
+                item.get("relatedItemNames") or "",
+                diagnosis_action_text(item),
+                now(),
+            ),
+        )
+
+
+def retest_task_to_dict(row) -> dict:
+    item = row_to_dict(row)
+    return {
+        "id": item["id"],
+        "enterpriseId": item["enterprise_id"],
+        "inspectionId": item["inspection_id"],
+        "boilerId": item["boiler_id"],
+        "boilerName": item["boiler_name"],
+        "riskCode": item["risk_code"],
+        "riskType": item["risk_type"],
+        "level": item["level"],
+        "title": item["title"],
+        "desc": item["retest_plan"] or item["description"],
+        "description": item["description"],
+        "action": item["field_action"],
+        "fieldAction": item["field_action"],
+        "retestPlan": item["retest_plan"],
+        "relatedItemNames": item["related_item_names"],
+        "actionText": item["action_text"],
+        "status": item["status"],
+        "createdAt": item["created_at"],
+        "completedAt": item["completed_at"],
     }
 
 
@@ -2018,6 +2199,7 @@ def recognize(req: RecognizeReq):
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="inspection not found")
         save_inspection_test_results(conn, req.inspectionId, result["items"])
+        create_retest_tasks_from_result(conn, result)
     return {"inspectionId": req.inspectionId, "status": "done", "result": result}
 
 
@@ -2047,6 +2229,38 @@ def submit_inspection(req: SubmitReq):
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="inspection not found")
     return {"inspectionId": req.inspectionId, "status": "submitted"}
+
+
+@app.get("/retest-tasks")
+def list_retest_tasks(enterpriseId: int = 1, status: str = "pending"):
+    with db() as conn:
+        filters = ["enterprise_id = ?"]
+        params = [enterpriseId]
+        if status and status != "all":
+            filters.append("status = ?")
+            params.append(status)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM retest_tasks
+            WHERE {' AND '.join(filters)}
+            ORDER BY id DESC
+            """,
+            tuple(params),
+        )
+        return [retest_task_to_dict(row) for row in rows]
+
+
+@app.post("/retest-tasks/{task_id}/complete")
+def complete_retest_task(task_id: int, req: CompleteRetestTaskReq = CompleteRetestTaskReq()):
+    with db() as conn:
+        cur = conn.execute(
+            "UPDATE retest_tasks SET status = 'done', completed_at = ? WHERE id = ?",
+            (now(), task_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="retest task not found")
+    return {"id": task_id, "status": "done"}
 
 
 @app.get("/inspections")

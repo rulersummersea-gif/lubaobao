@@ -36,6 +36,14 @@ function getRecordDetail(id) {
   return request({ url, method, data })
 }
 
+function getRetestTasks(params = {}) {
+  return request({ url: '/retest-tasks', method: 'GET', data: params })
+}
+
+function completeRetestTask(id) {
+  return request({ url: `/retest-tasks/${id}/complete`, method: 'POST', data: {} })
+}
+
 module.exports = {
   createInspection,
   uploadImage,
@@ -43,5 +51,7 @@ module.exports = {
   getInspectionResult,
   submitInspection,
   getRecords,
-  getRecordDetail
+  getRecordDetail,
+  getRetestTasks,
+  completeRetestTask
 }

@@ -49,4 +49,17 @@ const mockRecords = [
   { id: 8001, time: '2026-07-05 10:30', boilerName: '1号蒸汽锅炉', riskLevel: 'warning', summary: 'pH偏低，建议补加药剂' },
   { id: 8002, time: '2026-07-04 09:10', boilerName: '2号蒸汽锅炉', riskLevel: 'normal', summary: '检测正常' }
 ]
-module.exports = { mockUser, mockDashboard, mockBoilers, mockMaterialPack, mockResult, mockRecords }
+let mockRetestTasks = [
+  {
+    id: 1,
+    boilerName: '1号蒸汽锅炉',
+    title: '结垢风险预警',
+    desc: '处理后建议2小时内复测硬度、磷酸根和pH。',
+    action: '检查软水器盐箱、再生状态和加药泵；按现场药剂方案补加防垢剂/磷酸盐药剂，并安排一次排污。',
+    relatedItemNames: '硬度、磷酸根',
+    actionText: '结垢风险预警\n关联指标：硬度、磷酸根\n现场处置：检查软水器盐箱、再生状态和加药泵；按现场药剂方案补加防垢剂/磷酸盐药剂，并安排一次排污。\n复测要求：处理后建议2小时内复测硬度、磷酸根和pH。',
+    level: 'high',
+    status: 'pending'
+  }
+]
+module.exports = { mockUser, mockDashboard, mockBoilers, mockMaterialPack, mockResult, mockRecords, mockRetestTasks }

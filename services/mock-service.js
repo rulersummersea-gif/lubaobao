@@ -1,4 +1,4 @@
-const { mockUser, mockBoilers, mockRecords, mockMaterialPack, mockResult, mockDashboard } = require('../utils/mock')
+const { mockUser, mockBoilers, mockRecords, mockMaterialPack, mockResult, mockDashboard, mockRetestTasks } = require('../utils/mock')
 function wait(data, timeout = 150) {
   return new Promise(resolve => setTimeout(() => resolve(JSON.parse(JSON.stringify(data))), timeout))
 }
@@ -39,6 +39,15 @@ module.exports = {
   },
   submitInspection({ inspectionId, remark }) {
     return wait({ success: true, inspectionId, recordId: String(inspectionId), remark })
+  },
+  getRetestTasks() {
+    return wait(mockRetestTasks.filter(item => item.status !== 'done'))
+  },
+  completeRetestTask(url) {
+    const id = String(url).split('/')[2]
+    const task = mockRetestTasks.find(item => String(item.id) === id)
+    if (task) task.status = 'done'
+    return wait({ id, status: 'done' })
   },
   getReport() {
     return wait({ score: 72, abnormalCount: 5, inspectionCount: 18, suggestions: ['检查软化器再生', '补加药剂并2小时复测'] })

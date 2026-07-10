@@ -207,6 +207,30 @@
 { "inspectionId": 9001, "remark": "补加药剂后复测" }
 ```
 
+### GET `/retest-tasks?enterpriseId=1&status=pending`
+查询待复测任务。识别结果中存在 `retestPlan` 的诊断项会自动生成复测任务。
+
+响应示例：
+```json
+[
+  {
+    "id": 1,
+    "inspectionId": 9001,
+    "boilerName": "1号蒸汽锅炉",
+    "riskType": "结垢风险",
+    "title": "结垢风险预警",
+    "desc": "处理后建议2小时内复测硬度、磷酸根和pH。",
+    "fieldAction": "检查软水器盐箱、再生状态和加药泵...",
+    "retestPlan": "处理后建议2小时内复测硬度、磷酸根和pH。",
+    "relatedItemNames": "硬度、磷酸根",
+    "status": "pending"
+  }
+]
+```
+
+### POST `/retest-tasks/{id}/complete`
+标记复测任务已完成。小程序告警页使用该接口关闭待复测提醒。
+
 ## 5. 记录与报告
 ### GET `/inspections`
 支持筛选：

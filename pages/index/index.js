@@ -1,6 +1,7 @@
 // pages/index/index.js
 // 首页工作台：展示当前用户、企业、锅炉、统计数据和快捷入口。
 const { request } = require('../../api/index')
+const { getRetestTasks } = require('../../api/inspection')
 const { getState } = require('../../store/app-state')
 const ui = require('../../utils/ui')
 const retest = require('../../utils/retest')
@@ -17,7 +18,11 @@ Page({
     try {
       ui.showLoading('加载中')
       const dashboard = await request({ url: '/dashboard' })
-      const localAlerts = retest.getPendingReminders().slice(0, 3)
+      let localAlerts = retest.getPendingReminders().slice(0, 3)
+      try {
+        const serverTasks = await getRetestTasks({ status: 'pending' })
+        if (serverTasks && serverTasks.length) localAlerts = serverTasks.slice(0, 3)
+      } catch (taskError) {}
       const remoteAlerts = (dashboard.alerts || []).map((item) => ({
         title: item.title || item.boilerName || '异常提醒',
         desc: item.desc || item.text || '建议复测确认',
@@ -29,7 +34,7 @@ Page({
         enterprise: state.enterprise,
         currentBoiler: state.currentBoiler || null,
         stats: dashboard.stats || [],
-        alerts: localAlerts.concat(remoteAlerts).slice(0, 3),
+        alerts: (localAlerts.length ? localAlerts : remoteAlerts).slice(0, 3),
         latestSummary: lastResult.summary || ''
       })
     } catch (e) {
