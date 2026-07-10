@@ -457,6 +457,10 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "water_quality_limits", "updated_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "retest_tasks", "support_notice", "VARCHAR(512) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "service_advice", "VARCHAR(512) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "service_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "retest_tasks", "service_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "service_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
 
 
 def seed_data(conn) -> None:
@@ -635,6 +639,10 @@ def init_sqlite() -> None:
               field_action TEXT,
               retest_plan TEXT,
               support_notice TEXT,
+              service_advice TEXT,
+              service_by INTEGER,
+              service_by_name TEXT,
+              service_at TEXT,
               related_item_names TEXT,
               action_text TEXT,
               status TEXT NOT NULL DEFAULT 'pending',
@@ -787,6 +795,10 @@ def init_mysql() -> None:
               field_action VARCHAR(512) NULL,
               retest_plan VARCHAR(512) NULL,
               support_notice VARCHAR(512) NULL,
+              service_advice VARCHAR(512) NULL,
+              service_by BIGINT NULL,
+              service_by_name VARCHAR(64) NULL,
+              service_at DATETIME NULL,
               related_item_names VARCHAR(255) NULL,
               action_text TEXT NULL,
               status VARCHAR(20) NOT NULL DEFAULT 'pending',
@@ -941,6 +953,10 @@ class SubmitReq(BaseModel):
 
 class CompleteRetestTaskReq(BaseModel):
     remark: Optional[str] = ""
+
+
+class RetestServiceAdviceReq(BaseModel):
+    serviceAdvice: str
 
 
 @app.get("/")
@@ -1132,6 +1148,10 @@ def retest_task_to_dict(row) -> dict:
         "fieldAction": item["field_action"],
         "retestPlan": item["retest_plan"],
         "supportNotice": item.get("support_notice") or "",
+        "serviceAdvice": item.get("service_advice") or "",
+        "serviceBy": item.get("service_by"),
+        "serviceByName": item.get("service_by_name") or "",
+        "serviceAt": item.get("service_at"),
         "relatedItemNames": item["related_item_names"],
         "actionText": item["action_text"],
         "status": item["status"],
@@ -2268,6 +2288,27 @@ def complete_retest_task(task_id: int, req: CompleteRetestTaskReq = CompleteRete
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="retest task not found")
     return {"id": task_id, "status": "done"}
+
+
+@app.post("/retest-tasks/{task_id}/service-advice")
+def save_retest_service_advice(task_id: int, req: RetestServiceAdviceReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        row = row_to_dict(conn.execute("SELECT enterprise_id FROM retest_tasks WHERE id = ?", (task_id,)).fetchone())
+        if not row:
+            raise HTTPException(status_code=404, detail="retest task not found")
+        ensure_enterprise_scope(current_user, row["enterprise_id"])
+        cur = conn.execute(
+            """
+            UPDATE retest_tasks
+            SET service_advice = ?, service_by = ?, service_by_name = ?, service_at = ?
+            WHERE id = ?
+            """,
+            (req.serviceAdvice.strip(), current_user.get("id"), current_user.get("name") or current_user.get("username"), now(), task_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="retest task not found")
+    return {"id": task_id, "serviceAdvice": req.serviceAdvice.strip(), "serviceByName": current_user.get("name") or current_user.get("username")}
 
 
 @app.get("/inspections")

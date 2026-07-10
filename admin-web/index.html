@@ -237,7 +237,7 @@
           <button class="secondary" id="loadRetestsBtn">刷新任务</button>
         </div>
         <table>
-          <thead><tr><th>ID</th><th>锅炉</th><th>风险</th><th>复测要求</th><th>现场处置</th><th>后台服务提醒</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>锅炉</th><th>风险</th><th>复测要求</th><th>现场处置</th><th>后台服务提醒</th><th>服务处理意见</th><th>状态</th><th>操作</th></tr></thead>
           <tbody id="retestsBody"></tbody>
         </table>
       </div>
@@ -612,12 +612,21 @@ async function loadRetestTasks() {
       <td>${esc(task.retestPlan || task.desc || '-')}</td>
       <td>${esc(task.fieldAction || task.action || '-')}</td>
       <td>${esc(task.supportNotice || '-')}</td>
+      <td>
+        <textarea id="serviceAdvice${task.id}" rows="4" style="width:260px;min-height:92px;border:1px solid #cbd5e1;border-radius:8px;padding:8px;font-size:14px;">${esc(task.serviceAdvice || '')}</textarea>
+        <div class="muted">${task.serviceByName ? `最近保存：${esc(task.serviceByName)} ${esc(task.serviceAt || '')}` : '服务人员可填写专业处理意见'}</div>
+      </td>
       <td>${tag(task.status)}</td>
       <td>
+        <button onclick="saveRetestServiceAdvice(${task.id})">保存意见</button>
         <button class="secondary" onclick="loadInspectionDetail(${Number(task.inspectionId) || 0}); switchTab('inspections')">巡检详情</button>
         ${task.status === 'pending' ? `<button onclick="completeRetestTask(${task.id})">标记完成</button>` : ''}
       </td>
-    </tr>`).join('') || '<tr><td colspan="8">暂无复测任务</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="9">暂无复测任务</td></tr>';
+}
+async function saveRetestServiceAdvice(id) {
+  await api('/retest-tasks/' + id + '/service-advice', { method: 'POST', body: JSON.stringify({ serviceAdvice: $('serviceAdvice' + id).value.trim() }) });
+  await loadRetestTasks();
 }
 async function completeRetestTask(id) {
   if (!confirm('确认将该复测任务标记为已完成？')) return;

@@ -232,6 +232,12 @@
 ### POST `/retest-tasks/{id}/complete`
 标记复测任务已完成。小程序告警页使用该接口关闭待复测提醒。
 
+### POST `/retest-tasks/{id}/service-advice`
+后台服务支持人员保存专业处理意见，需要 `platform_admin` 或 `enterprise_admin`。
+```json
+{ "serviceAdvice": "已复核现场情况，建议先按排污制度执行一次定排，2小时后复测氯离子和总碱度。" }
+```
+
 ## 5. 记录与报告
 ### GET `/inspections`
 支持筛选：
