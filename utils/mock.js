@@ -32,7 +32,17 @@ const mockResult = {
     { itemName: '硬度', value: '0.05', normalRange: '≤0.03 mmol/L', abnormal: true }
   ],
   diagnosis: [
-    { title: '结垢风险预警', reason: '硬度超标且磷酸根偏低，疑似软化器失效或加药不足', advice: '检查软化器、补加药剂，2小时后复测' }
+    {
+      riskCode: 'scale',
+      riskType: '结垢风险',
+      level: 'high',
+      title: '结垢风险预警',
+      reason: '硬度偏高且磷酸根偏低，防垢药剂余量不足。',
+      advice: '检查软水器并补加防垢剂。',
+      fieldAction: '检查软水器盐箱、再生状态和加药泵；按现场药剂方案补加防垢剂/磷酸盐药剂，并安排一次排污。',
+      retestPlan: '处理后建议2小时内复测硬度、磷酸根和pH。',
+      relatedItemNames: '硬度、磷酸根'
+    }
   ]
 }
 const mockRecords = [

@@ -1,11 +1,22 @@
 <view class="container">
-  <view class="card" wx:for="{{list}}" wx:key="title">
+  <view wx:if="{{!list.length}}" class="card">
+    <view class="section-title">暂无待处理提醒</view>
+    <view class="sub">完成巡检后，异常项目的复测要求会显示在这里。</view>
+  </view>
+  <view class="card" wx:for="{{list}}" wx:key="id">
     <view class="row">
       <view>
         <view class="title-sm">{{item.title}}</view>
+        <view wx:if="{{item.boilerName}}" class="sub">{{item.boilerName}}</view>
         <view class="sub">{{item.desc}}</view>
+        <view wx:if="{{item.relatedItemNames}}" class="sub">复测项目：{{item.relatedItemNames}}</view>
+        <view wx:if="{{item.action}}" class="sub">现场处置：{{item.action}}</view>
       </view>
       <status-tag type="warning" text="预警"></status-tag>
+    </view>
+    <view wx:if="{{item.source !== 'remote'}}" class="alert-actions">
+      <view class="alert-btn secondary" data-index="{{index}}" bindtap="copyAction">复制处置</view>
+      <view class="alert-btn primary" data-id="{{item.id}}" bindtap="completeRetest">已完成</view>
     </view>
   </view>
 </view>

@@ -2,12 +2,15 @@
 // 结果页：展示最近一次巡检识别结果，并允许提交为正式巡检记录。
 const { request } = require('../../api/index')
 const ui = require('../../utils/ui')
+const retest = require('../../utils/retest')
 
 Page({
   data: { result: null, submitting: false },
 
   onShow() {
-    this.setData({ result: this.normalizeResult(wx.getStorageSync('BG_LAST_RESULT') || {}) })
+    const raw = wx.getStorageSync('BG_LAST_RESULT') || {}
+    if (raw && raw.diagnosis) retest.upsertFromResult(raw)
+    this.setData({ result: this.normalizeResult(raw) })
   },
 
   normalizeResult(raw) {

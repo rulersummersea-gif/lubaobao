@@ -3,9 +3,10 @@
 const { request } = require('../../api/index')
 const { getState } = require('../../store/app-state')
 const ui = require('../../utils/ui')
+const retest = require('../../utils/retest')
 
 Page({
-  data: { user: null, enterprise: null, currentBoiler: null, stats: [], alerts: [] },
+  data: { user: null, enterprise: null, currentBoiler: null, stats: [], alerts: [], latestSummary: '' },
 
   async onShow() {
     const state = getState()
@@ -16,12 +17,20 @@ Page({
     try {
       ui.showLoading('加载中')
       const dashboard = await request({ url: '/dashboard' })
+      const localAlerts = retest.getPendingReminders().slice(0, 3)
+      const remoteAlerts = (dashboard.alerts || []).map((item) => ({
+        title: item.title || item.boilerName || '异常提醒',
+        desc: item.desc || item.text || '建议复测确认',
+        level: item.level || 'warning'
+      }))
+      const lastResult = wx.getStorageSync('BG_LAST_RESULT') || {}
       this.setData({
         user: state.user,
         enterprise: state.enterprise,
         currentBoiler: state.currentBoiler || null,
         stats: dashboard.stats || [],
-        alerts: dashboard.alerts || []
+        alerts: localAlerts.concat(remoteAlerts).slice(0, 3),
+        latestSummary: lastResult.summary || ''
       })
     } catch (e) {
       ui.error('首页加载失败')

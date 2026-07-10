@@ -61,6 +61,7 @@
             <view>
               <view>{{item.title}}</view>
               <view class="sub">{{item.desc}}</view>
+              <view wx:if="{{item.relatedItemNames}}" class="sub">复测项目：{{item.relatedItemNames}}</view>
             </view>
             <view class="tag tag-warn">预警</view>
           </view>
@@ -72,6 +73,7 @@
 
   <view class="card">
     <view class="section-title">最近巡检摘要</view>
-    <view class="sub">最近一次结果：pH、磷酸根、氯离子、硬度预警，建议调整加药、检查软水器并加强排污后复测。</view>
+    <view wx:if="{{latestSummary}}" class="sub">{{latestSummary}}</view>
+    <view wx:else class="sub">完成一次巡检后，这里会显示最近结果和复测提醒。</view>
   </view>
 </view>
