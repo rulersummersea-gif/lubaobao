@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>炉保保 H5 灰测</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f7fb; color: #0f172a; font-family: Arial, "PingFang SC", sans-serif; font-size: 17px; line-height: 1.55; }
+    .app { max-width: 520px; min-height: 100vh; margin: 0 auto; padding: 18px 14px 96px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: 0 8px 24px rgba(15, 23, 42, .06); }
+    .top { position: sticky; top: 0; z-index: 5; margin: -18px -14px 14px; padding: 16px 14px 12px; background: rgba(245, 247, 251, .96); backdrop-filter: blur(8px); border-bottom: 1px solid #e2e8f0; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 24px; font-weight: 900; }
+    h2 { font-size: 21px; font-weight: 900; margin-bottom: 10px; }
+    h3 { font-size: 18px; font-weight: 900; margin-bottom: 8px; }
+    .muted { color: #64748b; font-size: 15px; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .field { margin-top: 12px; }
+    label { display: block; margin-bottom: 7px; font-size: 15px; color: #334155; font-weight: 800; }
+    input, select { width: 100%; min-height: 48px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px; background: #f8fafc; color: #0f172a; font-size: 17px; }
+    input[type="file"] { padding: 12px; height: auto; }
+    button { width: 100%; min-height: 54px; border: 0; border-radius: 9px; padding: 0 14px; background: #1d4ed8; color: #fff; font-size: 18px; font-weight: 900; }
+    button.secondary { background: #e2e8f0; color: #0f172a; }
+    button.warning { background: #f59e0b; color: #111827; }
+    button:disabled { opacity: .55; }
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 10px; font-size: 13px; font-weight: 900; background: #dbeafe; color: #1d4ed8; }
+    .tag.warn { background: #fef3c7; color: #92400e; }
+    .tag.ok { background: #dcfce7; color: #166534; }
+    .tabs { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 10; width: min(520px, 100%); display: grid; grid-template-columns: repeat(4, 1fr); background: #fff; border-top: 1px solid #e2e8f0; padding: 8px 8px max(8px, env(safe-area-inset-bottom)); }
+    .tab-btn { min-height: 48px; background: transparent; color: #64748b; font-size: 14px; border-radius: 8px; }
+    .tab-btn.active { background: #eff6ff; color: #1d4ed8; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .water-row { display: grid; grid-template-columns: 1fr 118px; gap: 10px; align-items: center; padding: 13px 0; border-bottom: 1px solid #e2e8f0; }
+    .water-row:last-child { border-bottom: 0; }
+    .water-name { font-size: 18px; font-weight: 900; }
+    .preview { width: 100%; max-height: 260px; object-fit: contain; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; margin-top: 10px; }
+    .item { padding: 14px 0; border-bottom: 1px solid #e2e8f0; }
+    .item:last-child { border-bottom: 0; }
+    .result-value { font-size: 22px; font-weight: 900; }
+    .action-card { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 10px; padding: 14px; margin-top: 12px; }
+    .action-primary { background: #ecfdf5; border-radius: 8px; padding: 10px; margin-top: 8px; }
+    .empty { text-align: center; color: #64748b; padding: 24px 10px; }
+    .toast { position: fixed; left: 50%; bottom: 82px; transform: translateX(-50%); z-index: 20; max-width: 88%; padding: 10px 14px; border-radius: 8px; background: #0f172a; color: #fff; font-size: 15px; opacity: 0; pointer-events: none; transition: opacity .2s; }
+    .toast.show { opacity: 1; }
+    .danger-text { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="top">
+      <div class="row">
+        <div>
+          <h1>炉保保 H5</h1>
+          <p class="muted" id="envText">灰测内测版</p>
+        </div>
+        <span class="tag" id="loginState">未登录</span>
+      </div>
+    </div>
+
+    <section class="page active" id="pageHome">
+      <div class="card">
+        <h2>工作台</h2>
+        <p class="muted" id="userText">请先登录后开始灰测。</p>
+        <div class="field">
+          <label>API 地址</label>
+          <input id="apiBase" value="/api" placeholder="例如 /api 或 http://49.232.174.76:18080">
+        </div>
+        <div class="btn-row">
+          <button id="loginBtn">演示登录</button>
+          <button class="secondary" id="saveApiBtn">保存地址</button>
+        </div>
+      </div>
+      <div class="grid" id="statsGrid"></div>
+      <div class="card">
+        <div class="row">
+          <h2>待复测</h2>
+          <button class="secondary" style="width:auto;min-height:40px;font-size:15px;" onclick="showPage('tasks')">查看</button>
+        </div>
+        <div id="homeTasks" class="muted">暂无数据</div>
+      </div>
+    </section>
+
+    <section class="page" id="pageInspect">
+      <div class="card">
+        <h2 id="inspectTitle">发起巡检</h2>
+        <p class="muted" id="retestHint">拍照保留样本，灰测阶段先录入试纸读数。</p>
+        <div class="field">
+          <label>选择锅炉</label>
+          <select id="boilerSelect"></select>
+        </div>
+        <div class="field">
+          <label>材料包编码</label>
+          <input id="packCode" value="PACK-001" placeholder="请输入或扫码得到的材料包编码">
+        </div>
+        <div class="btn-row">
+          <button class="secondary" id="verifyPackBtn">校验材料包</button>
+          <button class="secondary" id="clearRetestBtn">取消复测</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>拍照/上传</h2>
+        <input id="photoInput" type="file" accept="image/*" capture="environment">
+        <img id="photoPreview" class="preview" alt="检测照片预览" style="display:none">
+      </div>
+      <div class="card">
+        <h2>试纸读数</h2>
+        <p class="muted">先录入 6 项读数。后续接入照片识别后，这里会变成识别确认。</p>
+        <div id="waterInputs"></div>
+      </div>
+      <button id="submitInspectionBtn">提交巡检</button>
+    </section>
+
+    <section class="page" id="pageResult">
+      <div id="resultView" class="empty">暂无结果</div>
+    </section>
+
+    <section class="page" id="pageTasks">
+      <div class="card">
+        <div class="row">
+          <h2>复测任务</h2>
+          <button class="secondary" style="width:auto;min-height:40px;font-size:15px;" id="refreshTasksBtn">刷新</button>
+        </div>
+        <div id="tasksView"></div>
+      </div>
+    </section>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-page="home">首页</button>
+    <button class="tab-btn" data-page="inspect">巡检</button>
+    <button class="tab-btn" data-page="result">结果</button>
+    <button class="tab-btn" data-page="tasks">复测</button>
+  </nav>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      token: localStorage.getItem('H5_TOKEN') || '',
+      user: JSON.parse(localStorage.getItem('H5_USER') || 'null'),
+      apiBase: localStorage.getItem('H5_API_BASE') || '/api',
+      boilers: [],
+      pack: null,
+      photoFile: null,
+      lastResult: JSON.parse(localStorage.getItem('H5_LAST_RESULT') || 'null'),
+      lastInspectionId: localStorage.getItem('H5_LAST_INSPECTION_ID') || '',
+      retestTask: JSON.parse(localStorage.getItem('H5_RETEST_TASK') || 'null'),
+      tasks: []
+    };
+    const waterItems = [
+      { code: 'ph', name: 'pH', unit: '', value: '8.2', placeholder: '8.2' },
+      { code: 'phosphate', name: '磷酸根', unit: 'mg/L', value: '8', placeholder: '8' },
+      { code: 'sulfite', name: '亚硫酸根', unit: 'mg/L', value: '18', placeholder: '18' },
+      { code: 'alkalinity', name: '总碱度', unit: 'mmol/L', value: '22', placeholder: '22' },
+      { code: 'chloride', name: '氯离子', unit: 'mg/L', value: '320', placeholder: '320' },
+      { code: 'hardness', name: '硬度', unit: 'mmol/L', value: '0.05', placeholder: '0.05' }
+    ];
+
+    function apiBase() { return state.apiBase.replace(/\/$/, ''); }
+    function headers(extra = {}) {
+      return { 'Content-Type': 'application/json', ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}), ...extra };
+    }
+    function esc(v) {
+      return String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+    function toast(text) {
+      $('toast').textContent = text;
+      $('toast').classList.add('show');
+      setTimeout(() => $('toast').classList.remove('show'), 1800);
+    }
+    async function api(path, options = {}) {
+      const res = await fetch(apiBase() + path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = text; }
+      if (!res.ok) throw new Error((data && (data.detail || data.message)) || ('HTTP ' + res.status));
+      return data;
+    }
+    async function uploadPhoto(inspectionId) {
+      if (!state.photoFile) return null;
+      const body = new FormData();
+      body.append('inspectionId', inspectionId);
+      body.append('file', state.photoFile);
+      const res = await fetch(apiBase() + '/inspections/upload-image', {
+        method: 'POST',
+        headers: state.token ? { Authorization: 'Bearer ' + state.token } : {},
+        body
+      });
+      if (!res.ok) throw new Error('图片上传失败');
+      return res.json();
+    }
+    function showPage(page) {
+      document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === 'page' + page[0].toUpperCase() + page.slice(1)));
+      document.querySelectorAll('.tab-btn').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
+      if (page === 'result') renderResult();
+      if (page === 'tasks') loadTasks();
+    }
+    function renderWaterInputs() {
+      $('waterInputs').innerHTML = waterItems.map((item, index) => `
+        <div class="water-row">
+          <div>
+            <div class="water-name">${index + 1}. ${esc(item.name)}</div>
+            <div class="muted">${esc(item.unit || '无单位')}</div>
+          </div>
+          <input inputmode="decimal" value="${esc(item.value)}" placeholder="${esc(item.placeholder)}" data-code="${item.code}" class="water-value">
+        </div>
+      `).join('');
+      document.querySelectorAll('.water-value').forEach((input) => {
+        input.oninput = () => {
+          const item = waterItems.find((row) => row.code === input.dataset.code);
+          if (item) item.value = input.value;
+        };
+      });
+    }
+    function waterValues() {
+      const values = {};
+      for (const item of waterItems) {
+        const value = String(item.value || '').trim();
+        if (!value) throw new Error('请填写' + item.name);
+        values[item.code] = value;
+      }
+      return values;
+    }
+    function updateHeader() {
+      $('apiBase').value = state.apiBase;
+      $('loginState').textContent = state.token ? '已登录' : '未登录';
+      $('loginState').className = 'tag ' + (state.token ? 'ok' : 'warn');
+      $('userText').textContent = state.user ? `${state.user.name || state.user.username}，可以开始灰测。` : '请先登录后开始灰测。';
+      $('inspectTitle').textContent = state.retestTask ? '提交复测' : '发起巡检';
+      $('retestHint').textContent = state.retestTask
+        ? `复测任务：${state.retestTask.title || ''} ${state.retestTask.relatedItemNames ? '｜' + state.retestTask.relatedItemNames : ''}`
+        : '拍照保留样本，灰测阶段先录入试纸读数。';
+      $('clearRetestBtn').style.display = state.retestTask ? 'block' : 'none';
+    }
+    async function login() {
+      const data = await api('/auth/wx-login', { method: 'POST', body: JSON.stringify({ code: 'h5-pilot' }) });
+      state.token = data.token;
+      state.user = data.user;
+      localStorage.setItem('H5_TOKEN', state.token);
+      localStorage.setItem('H5_USER', JSON.stringify(state.user));
+      updateHeader();
+      await Promise.all([loadBoilers(), loadDashboard(), loadTasks()]);
+      toast('登录成功');
+    }
+    async function loadDashboard() {
+      if (!state.token) return;
+      const data = await api('/dashboard');
+      $('statsGrid').innerHTML = (data.stats || []).map((item) => `
+        <div class="card" style="margin:0;"><div class="muted">${esc(item.label)}</div><div class="result-value">${esc(item.value)}</div></div>
+      `).join('');
+      $('homeTasks').innerHTML = (data.alerts || []).slice(0, 2).map((item) => `
+        <div class="item"><strong>${esc(item.title)}</strong><div class="muted">${esc(item.desc)}</div></div>
+      `).join('') || '暂无待复测提醒';
+    }
+    async function loadBoilers() {
+      if (!state.token) return;
+      state.boilers = await api('/boilers?enterpriseId=1');
+      $('boilerSelect').innerHTML = state.boilers.map((b) => `<option value="${b.id}">${esc(b.name || b.model || b.id)}</option>`).join('');
+      if (state.retestTask && state.retestTask.boilerId) $('boilerSelect').value = state.retestTask.boilerId;
+    }
+    async function verifyPack() {
+      const code = $('packCode').value.trim();
+      if (!code) throw new Error('请输入材料包编码');
+      const data = await api('/material-packs/verify', { method: 'POST', body: JSON.stringify({ code }) });
+      state.pack = data.pack || data;
+      toast('材料包校验成功');
+    }
+    async function submitInspection() {
+      if (!state.token) throw new Error('请先登录');
+      if (!state.pack) await verifyPack();
+      const boilerId = Number(state.retestTask && state.retestTask.boilerId ? state.retestTask.boilerId : $('boilerSelect').value);
+      const created = await api('/inspections', {
+        method: 'POST',
+        body: JSON.stringify({
+          boilerId,
+          materialPackId: state.pack.id || 9001,
+          inspectionType: state.retestTask ? 'retest' : 'daily',
+          retestTaskId: state.retestTask ? state.retestTask.id : null
+        })
+      });
+      const inspectionId = created.inspectionId || created.id;
+      await uploadPhoto(inspectionId);
+      const result = await api('/inspections/recognize', {
+        method: 'POST',
+        body: JSON.stringify({ inspectionId, values: waterValues() })
+      });
+      state.lastInspectionId = inspectionId;
+      state.lastResult = result.result || result;
+      localStorage.setItem('H5_LAST_INSPECTION_ID', inspectionId);
+      localStorage.setItem('H5_LAST_RESULT', JSON.stringify(state.lastResult));
+      if (state.retestTask) {
+        state.retestTask = null;
+        localStorage.removeItem('H5_RETEST_TASK');
+      }
+      renderResult();
+      showPage('result');
+      toast('巡检已完成');
+    }
+    function renderResult() {
+      const result = state.lastResult;
+      if (!result) {
+        $('resultView').innerHTML = '<div class="empty">暂无结果</div>';
+        return;
+      }
+      const warning = (result.items || []).some((item) => item.status === 'warning');
+      $('resultView').innerHTML = `
+        <div class="card">
+          <div class="row"><h2>巡检结果</h2><span class="tag ${warning ? 'warn' : 'ok'}">${warning ? '预警' : '正常'}</span></div>
+          <p class="muted">${esc(result.summary || '')}</p>
+          <p class="muted">读数来源：${result.recognitionSource === 'manual_gray' ? '人工读数（灰测）' : '智能识别'}</p>
+        </div>
+        <div class="card">
+          <h2>检测值</h2>
+          ${(result.items || []).map((item) => `
+            <div class="item">
+              <div class="row"><strong>${esc(item.name)}</strong><span class="tag ${item.status === 'warning' ? 'warn' : 'ok'}">${item.status === 'warning' ? '异常' : '正常'}</span></div>
+              <div class="result-value">${esc(item.value)} ${esc(item.unit || '')}</div>
+              <div class="muted">范围：${esc(item.normalRange || '-')}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="card">
+          <h2>智能诊断</h2>
+          ${(result.diagnosis || []).map((item) => `
+            <div class="action-card">
+              <h3>${esc(item.title)}</h3>
+              <p class="muted">${esc(item.reason || '')}</p>
+              ${item.fieldAction ? `<div class="action-primary"><strong>现场处置</strong><br>${esc(item.fieldAction)}</div>` : ''}
+              ${item.retestPlan ? `<p class="muted" style="margin-top:8px;">复测要求：${esc(item.retestPlan)}</p>` : ''}
+            </div>
+          `).join('')}
+        </div>
+        <button onclick="submitRecord()">提交并查看记录</button>
+      `;
+    }
+    async function submitRecord() {
+      if (!state.lastInspectionId) return toast('缺少巡检ID');
+      await api('/inspections/submit', { method: 'POST', body: JSON.stringify({ inspectionId: Number(state.lastInspectionId), remark: 'H5灰测确认提交' }) });
+      toast('已提交');
+      await loadDashboard();
+    }
+    async function loadTasks() {
+      if (!state.token) return;
+      state.tasks = await api('/retest-tasks?enterpriseId=1&status=pending');
+      $('tasksView').innerHTML = state.tasks.length ? state.tasks.map((task) => `
+        <div class="action-card">
+          <div class="row"><h3>${esc(task.title)}</h3><span class="tag warn">${esc(task.riskType || '预警')}</span></div>
+          <p class="muted">${esc(task.boilerName || '')}</p>
+          <p class="muted">复测项目：${esc(task.relatedItemNames || '-')}</p>
+          <div class="action-primary"><strong>现场处置</strong><br>${esc(task.fieldAction || task.action || '-')}</div>
+          <p class="muted" style="margin-top:8px;">${esc(task.retestPlan || task.desc || '')}</p>
+          <div class="btn-row">
+            <button class="secondary" onclick="startRetest(${task.id})">去复测</button>
+            <button class="warning" onclick="skipRetest(${task.id})">暂不复测</button>
+          </div>
+        </div>
+      `).join('') : '<div class="empty">暂无待复测任务</div>';
+    }
+    function startRetest(id) {
+      const task = state.tasks.find((item) => Number(item.id) === Number(id));
+      if (!task) return toast('任务不存在');
+      state.retestTask = task;
+      localStorage.setItem('H5_RETEST_TASK', JSON.stringify(task));
+      updateHeader();
+      showPage('inspect');
+    }
+    async function skipRetest(id) {
+      await api('/retest-tasks/' + id + '/resolve', { method: 'POST', body: JSON.stringify({ resolutionType: 'no_retest', note: 'H5灰测选择暂不复测' }) });
+      toast('已记录暂不复测');
+      await loadTasks();
+      await loadDashboard();
+    }
+    $('loginBtn').onclick = () => login().catch((e) => toast(e.message));
+    $('saveApiBtn').onclick = () => {
+      state.apiBase = $('apiBase').value.trim() || '/api';
+      localStorage.setItem('H5_API_BASE', state.apiBase);
+      updateHeader();
+      toast('已保存');
+    };
+    $('verifyPackBtn').onclick = () => verifyPack().catch((e) => toast(e.message));
+    $('submitInspectionBtn').onclick = () => submitInspection().catch((e) => toast(e.message));
+    $('refreshTasksBtn').onclick = () => loadTasks().catch((e) => toast(e.message));
+    $('clearRetestBtn').onclick = () => {
+      state.retestTask = null;
+      localStorage.removeItem('H5_RETEST_TASK');
+      updateHeader();
+    };
+    $('photoInput').onchange = (event) => {
+      const file = event.target.files && event.target.files[0];
+      state.photoFile = file || null;
+      if (file) {
+        $('photoPreview').src = URL.createObjectURL(file);
+        $('photoPreview').style.display = 'block';
+      }
+    };
+    document.querySelectorAll('.tab-btn').forEach((btn) => btn.onclick = () => showPage(btn.dataset.page));
+    renderWaterInputs();
+    updateHeader();
+    renderResult();
+    if (state.token) Promise.all([loadBoilers(), loadDashboard(), loadTasks()]).catch((e) => toast(e.message));
+  </script>
+</body>
+</html>
