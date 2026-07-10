@@ -145,8 +145,19 @@
 
 ### POST `/inspections/recognize`
 ```json
-{ "inspectionId": 9001 }
+{
+  "inspectionId": 9001,
+  "values": {
+    "ph": "8.2",
+    "phosphate": "8",
+    "sulfite": "18",
+    "alkalinity": "22",
+    "chloride": "320",
+    "hardness": "0.05"
+  }
+}
 ```
+灰测阶段支持人工录入 6 项试纸读数，后端按 `values` 直接生成诊断和复测任务；若未传 `values`，使用样例值兜底。照片上传仍保留，用于后续试纸照片识别算法训练和人工复核。
 当前第一版锅水检测模板按优先级返回 6 项：
 1. pH：pH试纸
 2. 磷酸根：磷酸根试纸

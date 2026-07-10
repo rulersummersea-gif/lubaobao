@@ -5,6 +5,7 @@
       <view class="tag {{result.riskClass}}">{{result.riskLabel}}</view>
     </view>
     <view wx:if="{{result.summary}}" class="sub" style="margin-top:12rpx;">{{result.summary}}</view>
+    <view wx:if="{{result.sourceLabel}}" class="sub">读数来源：{{result.sourceLabel}}</view>
     <view wx:if="{{result.ratedPressureMpa}}" class="sub">额定压力：{{result.ratedPressureMpa}} MPa</view>
     <block wx:for="{{result.standardWarnings}}" wx:key="*this">
       <view class="sub">标准提示：{{item}}</view>
@@ -20,6 +21,8 @@
           <view wx:if="{{item.normalRange}}" class="sub">正常范围：{{item.normalRange}}</view>
           <view wx:if="{{item.pressureSegment}}" class="sub">适用压力段：{{item.pressureSegment}}</view>
           <view wx:if="{{item.standardSource}}" class="sub">依据：{{item.standardSource}}</view>
+          <view wx:if="{{item.confidence}}" class="sub">识别置信度：{{item.confidence}}%</view>
+          <view wx:if="{{item.reviewRequired}}" class="sub">提示：建议人工复核该读数</view>
           <view wx:if="{{!item.standardMatched}}" class="sub">提示：{{item.standardNote}}</view>
           <view wx:if="{{item.meaning}}" class="sub">意义：{{item.meaning}}</view>
           <view wx:if="{{item.maintenance}}" class="sub">维护：{{item.maintenance}}</view>

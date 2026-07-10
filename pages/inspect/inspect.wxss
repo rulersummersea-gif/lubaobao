@@ -18,3 +18,35 @@
   font-size: 28rpx;
   line-height: 1.6;
 }
+
+.water-input-row {
+  display: grid;
+  grid-template-columns: 1fr 220rpx;
+  gap: 18rpx;
+  align-items: center;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid #dbe3ef;
+}
+
+.water-input-row:last-child {
+  border-bottom: none;
+}
+
+.water-name {
+  font-size: 34rpx;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.water-input {
+  width: 100%;
+  min-height: 92rpx;
+  border: 2rpx solid #cbd5e1;
+  border-radius: 16rpx;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 34rpx;
+  font-weight: 800;
+  text-align: center;
+  box-sizing: border-box;
+}

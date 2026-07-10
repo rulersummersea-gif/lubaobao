@@ -28,6 +28,9 @@ Page({
       meaning: item.meaning || '',
       maintenance: item.maintenance || '',
       priority: item.priority || '',
+      confidence: typeof item.confidence === 'number' ? Math.round(item.confidence * 100) : '',
+      recognitionSource: item.recognitionSource || raw.recognitionSource || '',
+      reviewRequired: !!item.reviewRequired,
       statusText: item.status === 'unknown' || item.standardMatched === false ? '待配置' : (item.status === 'warning' || item.abnormal ? '异常' : '正常')
     }))
     const warning = String(status).toLowerCase() === 'warning' || items.some((item) => item.statusText === '异常')
@@ -52,6 +55,7 @@ Page({
       diagnosis,
       summary: raw.summary || '',
       standardWarnings: raw.standardWarnings || [],
+      sourceLabel: raw.recognitionSource === 'manual_gray' ? '人工读数（灰测）' : raw.recognitionSource === 'sample_fallback' ? '样例兜底' : '智能识别',
       riskLabel: warning ? '预警' : '正常',
       riskClass: warning ? 'tag-warn' : 'tag-normal'
     }

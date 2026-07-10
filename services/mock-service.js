@@ -24,7 +24,17 @@ module.exports = {
   createInspection({ boilerId, materialPackId, inspectionType, retestTaskId }) {
     return wait({ inspectionId: Date.now(), boilerId, materialPackId, inspectionType, retestTaskId, status: 'pending_upload' })
   },
-  recognizeInspection() {
+  recognizeInspection(data = {}) {
+    if (data.values) {
+      const result = JSON.parse(JSON.stringify(mockResult))
+      result.recognitionSource = 'manual_gray'
+      result.items = result.items.map((item) => {
+        const map = { pH: 'ph', '磷酸根': 'phosphate', '亚硫酸根': 'sulfite', '总碱度': 'alkalinity', '氯离子': 'chloride', '硬度': 'hardness' }
+        const code = map[item.itemName]
+        return { ...item, value: data.values[code] || item.value, confidence: 1, recognitionSource: 'manual_gray', reviewRequired: false }
+      })
+      return wait(result)
+    }
     return wait(mockResult)
   },
   getInspectionResult() {

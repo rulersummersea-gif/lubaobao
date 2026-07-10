@@ -12,6 +12,14 @@ Page({
     materialPackCode: '',
     previewImage: '',
     retestTask: null,
+    waterItems: [
+      { code: 'ph', name: 'pH', unit: '', value: '8.2', placeholder: '如 8.2' },
+      { code: 'phosphate', name: '磷酸根', unit: 'mg/L', value: '8', placeholder: '如 8' },
+      { code: 'sulfite', name: '亚硫酸根', unit: 'mg/L', value: '18', placeholder: '如 18' },
+      { code: 'alkalinity', name: '总碱度', unit: 'mmol/L', value: '22', placeholder: '如 22' },
+      { code: 'chloride', name: '氯离子', unit: 'mg/L', value: '320', placeholder: '如 320' },
+      { code: 'hardness', name: '硬度', unit: 'mmol/L', value: '0.05', placeholder: '如 0.05' }
+    ],
     submitting: false
   },
 
@@ -79,6 +87,23 @@ Page({
     }
   },
 
+  onWaterValueInput(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    const waterItems = this.data.waterItems.slice()
+    waterItems[index].value = e.detail.value
+    this.setData({ waterItems })
+  },
+
+  buildWaterValues() {
+    const values = {}
+    for (const item of this.data.waterItems) {
+      const value = String(item.value || '').trim()
+      if (!value) throw new Error(`请填写${item.name}`)
+      values[item.code] = value
+    }
+    return values
+  },
+
   async startInspection() {
     if (this.data.submitting) return
     const state = getState()
@@ -87,6 +112,12 @@ Page({
     if (!boilerId) return ui.error('请先选择锅炉')
     if (!this.data.materialPackCode) return ui.error('请先扫码材料包')
     if (!this.data.previewImage) return ui.error('请先拍照')
+    let waterValues
+    try {
+      waterValues = this.buildWaterValues()
+    } catch (e) {
+      return ui.error(e.message)
+    }
 
     this.setData({ submitting: true })
     try {
@@ -102,7 +133,7 @@ Page({
 
       // 真实接口优先：上传图片 -> 发起识别；mock 下也兼容
       await uploadImage(this.data.previewImage, inspectionId)
-      const result = await recognizeInspection({ inspectionId })
+      const result = await recognizeInspection({ inspectionId, values: waterValues })
 
       wx.setStorageSync('BG_LAST_RESULT', result.result || result)
       wx.setStorageSync('BG_LAST_INSPECTION_ID', inspectionId)

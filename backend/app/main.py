@@ -960,6 +960,7 @@ class InspectionCreateReq(BaseModel):
 
 class RecognizeReq(BaseModel):
     inspectionId: int
+    values: Optional[dict] = None
 
 
 class SubmitReq(BaseModel):
@@ -2083,7 +2084,7 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
     return score, risk_level, summary, diagnosis
 
 
-def inspection_result_payload(inspection_id: int, conn=None) -> dict:
+def inspection_result_payload(inspection_id: int, conn=None, input_values: Optional[dict] = None) -> dict:
     sample_values = {
         "ph": "8.2",
         "phosphate": "8",
@@ -2092,6 +2093,8 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
         "chloride": "320",
         "hardness": "0.05",
     }
+    source_values = input_values or sample_values
+    recognition_source = "manual_gray" if input_values else "sample_fallback"
     context = get_inspection_boiler_context(conn, inspection_id) if conn else {
         "inspectionId": inspection_id,
         "boilerId": None,
@@ -2115,7 +2118,7 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
     ]
     items = []
     for template in templates:
-        value = sample_values[template["code"]]
+        value = str(source_values.get(template["code"], sample_values[template["code"]])).strip()
         standard_min = decimal_to_number(template.get("standardMin"))
         standard_max = decimal_to_number(template.get("standardMax"))
         standard_missing = context["ratedPressureMpa"] is None or (standard_min is None and standard_max is None)
@@ -2126,6 +2129,9 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
                 "code": template["code"],
                 "name": template["name"],
                 "value": value,
+                "confidence": 1 if input_values else 0.72,
+                "recognitionSource": recognition_source,
+                "reviewRequired": False if input_values else True,
                 "unit": template.get("unit") or "",
                 "priority": template["priority"],
                 "method": template["method"],
@@ -2160,6 +2166,7 @@ def inspection_result_payload(inspection_id: int, conn=None) -> dict:
         "score": score,
         "status": "done",
         "riskLevel": risk_level,
+        "recognitionSource": recognition_source,
         "summary": summary,
         "standardWarnings": standard_warnings,
         "items": items,
@@ -2261,7 +2268,7 @@ def get_upload(filename: str):
 @app.post("/inspections/recognize")
 def recognize(req: RecognizeReq):
     with db() as conn:
-        result = inspection_result_payload(req.inspectionId, conn)
+        result = inspection_result_payload(req.inspectionId, conn, req.values)
         cur = conn.execute(
             """
             UPDATE inspections

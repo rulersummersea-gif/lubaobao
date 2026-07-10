@@ -23,6 +23,20 @@
   </view>
 
   <view class="card">
+    <view class="title">试纸读数录入</view>
+    <view class="sub">灰测阶段请按试纸读数填写，照片仍需保留用于后续识别算法训练和人工复核。</view>
+    <block wx:for="{{waterItems}}" wx:key="code" wx:for-index="index">
+      <view class="water-input-row">
+        <view>
+          <view class="water-name">{{index + 1}}. {{item.name}}</view>
+          <view class="sub">{{item.unit || '无单位'}}</view>
+        </view>
+        <input class="water-input" type="digit" value="{{item.value}}" placeholder="{{item.placeholder}}" data-index="{{index}}" bindinput="onWaterValueInput" />
+      </view>
+    </block>
+  </view>
+
+  <view class="card">
     <view class="btn-primary" bindtap="startInspection">{{retestTask ? '提交复测' : '开始巡检'}}</view>
   </view>
 </view>
