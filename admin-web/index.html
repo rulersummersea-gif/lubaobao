@@ -63,6 +63,7 @@
       <button data-tab="boilers">锅炉管理</button>
       <button data-tab="standards">检测标准</button>
       <button data-tab="inspections">巡检记录</button>
+      <button data-tab="retests">复测任务</button>
       <button data-tab="users">用户权限</button>
       <button data-tab="reports">月报中心</button>
       <button data-tab="debug">接口输出</button>
@@ -223,6 +224,25 @@
       </div>
     </section>
 
+    <section id="retests" class="tab">
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">复测任务</h2>
+          <input id="retestEnterprise" value="1" placeholder="企业ID">
+          <select id="retestStatus">
+            <option value="pending">待处理</option>
+            <option value="done">已完成</option>
+            <option value="all">全部</option>
+          </select>
+          <button class="secondary" id="loadRetestsBtn">刷新任务</button>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>锅炉</th><th>风险</th><th>复测要求</th><th>现场处置</th><th>后台服务提醒</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="retestsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="users" class="tab">
       <div class="card">
         <h2 id="userFormTitle">新增用户</h2>
@@ -280,6 +300,7 @@ const state = {
   boilers: [],
   users: [],
   standards: [],
+  retestTasks: [],
 };
 
 function base() { return $('base').value.trim() || '/api'; }
@@ -577,6 +598,33 @@ async function loadInspections() {
       <td><button class="secondary" onclick="loadInspectionDetail(${i.inspectionId})">详情</button></td>
     </tr>`).join('');
 }
+async function loadRetestTasks() {
+  const params = new URLSearchParams();
+  params.set('enterpriseId', $('retestEnterprise').value || 1);
+  params.set('status', $('retestStatus').value || 'pending');
+  const tasks = await api('/retest-tasks?' + params.toString());
+  state.retestTasks = tasks;
+  $('retestsBody').innerHTML = tasks.map((task) => `
+    <tr>
+      <td>${esc(task.id)}</td>
+      <td>${esc(task.boilerName || task.boilerId || '-')}<br><span class="muted">巡检 ${esc(task.inspectionId || '-')}</span></td>
+      <td>${esc(task.title || '-')}<br>${tag(task.riskType || task.level || '-')}<br><span class="muted">${esc(task.relatedItemNames || '')}</span></td>
+      <td>${esc(task.retestPlan || task.desc || '-')}</td>
+      <td>${esc(task.fieldAction || task.action || '-')}</td>
+      <td>${esc(task.supportNotice || '-')}</td>
+      <td>${tag(task.status)}</td>
+      <td>
+        <button class="secondary" onclick="loadInspectionDetail(${Number(task.inspectionId) || 0}); switchTab('inspections')">巡检详情</button>
+        ${task.status === 'pending' ? `<button onclick="completeRetestTask(${task.id})">标记完成</button>` : ''}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="8">暂无复测任务</td></tr>';
+}
+async function completeRetestTask(id) {
+  if (!confirm('确认将该复测任务标记为已完成？')) return;
+  await api('/retest-tasks/' + id + '/complete', { method: 'POST', body: JSON.stringify({}) });
+  await loadRetestTasks();
+  await loadDashboard();
+}
 async function loadInspectionDetail(id) {
   const detail = await api('/records/' + id);
   renderInspectionDetail(detail);
@@ -686,7 +734,7 @@ async function loadReport() {
 }
 async function refreshAll() {
   await loadDashboard();
-  await Promise.all([loadEnterprises(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadUsers(), loadReport()]);
+  await Promise.all([loadEnterprises(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
 }
 
 document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
@@ -705,6 +753,7 @@ $('saveStandardBtn').onclick = () => saveStandard().catch(showDebug);
 $('resetStandardFormBtn').onclick = () => resetStandardForm();
 $('resetStandardsBtn').onclick = () => resetStandards().catch(showDebug);
 $('loadInspectionsBtn').onclick = () => loadInspections().catch(showDebug);
+$('loadRetestsBtn').onclick = () => loadRetestTasks().catch(showDebug);
 $('loadUsersBtn').onclick = () => loadUsers().catch(showDebug);
 $('saveUserBtn').onclick = () => saveUser().catch(showDebug);
 $('resetUserFormBtn').onclick = () => resetUserForm();

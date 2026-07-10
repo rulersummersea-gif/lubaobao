@@ -456,6 +456,7 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "water_quality_limits", "updated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "water_quality_limits", "updated_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "support_notice", "VARCHAR(512) NULL" if DB_DRIVER == "mysql" else "TEXT")
 
 
 def seed_data(conn) -> None:
@@ -633,6 +634,7 @@ def init_sqlite() -> None:
               description TEXT,
               field_action TEXT,
               retest_plan TEXT,
+              support_notice TEXT,
               related_item_names TEXT,
               action_text TEXT,
               status TEXT NOT NULL DEFAULT 'pending',
@@ -784,6 +786,7 @@ def init_mysql() -> None:
               description VARCHAR(512) NULL,
               field_action VARCHAR(512) NULL,
               retest_plan VARCHAR(512) NULL,
+              support_notice VARCHAR(512) NULL,
               related_item_names VARCHAR(255) NULL,
               action_text TEXT NULL,
               status VARCHAR(20) NOT NULL DEFAULT 'pending',
@@ -947,7 +950,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["pack-management", "image-upload", "inspection-submit", "record-detail"],
+        "features": ["pack-management", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -1051,9 +1054,9 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
         """
         INSERT INTO retest_tasks(
           enterprise_id, inspection_id, boiler_id, boiler_name, risk_code, risk_type,
-          level, title, description, field_action, retest_plan, related_item_names,
-          action_text, status, created_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+          level, title, description, field_action, retest_plan, support_notice,
+          related_item_names, action_text, status, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         ON DUPLICATE KEY UPDATE
           risk_type = VALUES(risk_type),
           level = VALUES(level),
@@ -1061,6 +1064,7 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
           description = VALUES(description),
           field_action = VALUES(field_action),
           retest_plan = VALUES(retest_plan),
+          support_notice = VALUES(support_notice),
           related_item_names = VALUES(related_item_names),
           action_text = VALUES(action_text),
           status = IF(status = 'done', status, 'pending')
@@ -1069,9 +1073,9 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
         else """
         INSERT INTO retest_tasks(
           enterprise_id, inspection_id, boiler_id, boiler_name, risk_code, risk_type,
-          level, title, description, field_action, retest_plan, related_item_names,
-          action_text, status, created_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+          level, title, description, field_action, retest_plan, support_notice,
+          related_item_names, action_text, status, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         ON CONFLICT(inspection_id, risk_code) DO UPDATE SET
           risk_type = excluded.risk_type,
           level = excluded.level,
@@ -1079,6 +1083,7 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
           description = excluded.description,
           field_action = excluded.field_action,
           retest_plan = excluded.retest_plan,
+          support_notice = excluded.support_notice,
           related_item_names = excluded.related_item_names,
           action_text = excluded.action_text,
           status = CASE WHEN retest_tasks.status = 'done' THEN retest_tasks.status ELSE 'pending' END
@@ -1101,6 +1106,7 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
                 item.get("reason") or "",
                 item.get("fieldAction") or item.get("advice") or "",
                 item.get("retestPlan") or "",
+                item.get("supportNotice") or "",
                 item.get("relatedItemNames") or "",
                 diagnosis_action_text(item),
                 now(),
@@ -1125,6 +1131,7 @@ def retest_task_to_dict(row) -> dict:
         "action": item["field_action"],
         "fieldAction": item["field_action"],
         "retestPlan": item["retest_plan"],
+        "supportNotice": item.get("support_notice") or "",
         "relatedItemNames": item["related_item_names"],
         "actionText": item["action_text"],
         "status": item["status"],
