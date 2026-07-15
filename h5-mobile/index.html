@@ -78,7 +78,7 @@
       <div class="card">
         <div class="row">
           <h2>待复测</h2>
-          <button class="secondary" style="width:auto;min-height:40px;font-size:15px;" onclick="showPage('tasks')">查看</button>
+          <button class="secondary" style="width:auto;min-height:40px;font-size:15px;" onclick="showPage('my')">查看</button>
         </div>
         <div id="homeTasks" class="muted">暂无数据</div>
       </div>
@@ -118,7 +118,35 @@
       <div id="resultView" class="empty">暂无结果</div>
     </section>
 
-    <section class="page" id="pageTasks">
+    <section class="page" id="pageMy">
+      <div class="card">
+        <h2>我的</h2>
+        <p class="muted" id="myUserText">未登录</p>
+        <div class="grid" style="margin-top:12px;">
+          <div class="action-card" style="margin:0;">
+            <div class="muted">账号角色</div>
+            <div class="result-value" id="myRoleText" style="font-size:18px;">-</div>
+          </div>
+          <div class="action-card" style="margin:0;">
+            <div class="muted">待复测</div>
+            <div class="result-value" id="myTaskCount" style="font-size:18px;">0</div>
+          </div>
+        </div>
+        <div class="action-card">
+          <div class="row">
+            <div>
+              <h3>本地灰测环境</h3>
+              <p class="muted" id="myApiText">/api</p>
+            </div>
+            <span class="tag" id="myLoginText">未登录</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="secondary" onclick="showPage('result')">最近结果</button>
+          <button class="secondary" onclick="showPage('inspect')">发起巡检</button>
+        </div>
+        <button class="secondary" id="myLoginActionBtn" style="margin-top:10px;">去首页登录</button>
+      </div>
       <div class="card">
         <div class="row">
           <h2>复测任务</h2>
@@ -133,7 +161,7 @@
     <button class="tab-btn active" data-page="home">首页</button>
     <button class="tab-btn" data-page="inspect">巡检</button>
     <button class="tab-btn" data-page="result">结果</button>
-    <button class="tab-btn" data-page="tasks">复测</button>
+    <button class="tab-btn" data-page="my">我的</button>
   </nav>
   <div class="toast" id="toast"></div>
 
@@ -197,7 +225,7 @@
       document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === 'page' + page[0].toUpperCase() + page.slice(1)));
       document.querySelectorAll('.tab-btn').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
       if (page === 'result') renderResult();
-      if (page === 'tasks') loadTasks();
+      if (page === 'my') loadTasks().catch((e) => toast(e.message));
     }
     function renderWaterInputs() {
       $('waterInputs').innerHTML = waterItems.map((item, index) => `
@@ -230,6 +258,12 @@
       $('loginState').textContent = state.token ? '已登录' : '未登录';
       $('loginState').className = 'tag ' + (state.token ? 'ok' : 'warn');
       $('userText').textContent = state.user ? `${state.user.name || state.user.username}，可以开始灰测。` : '请先登录后开始灰测。';
+      $('myUserText').textContent = state.user ? `${state.user.name || state.user.username}｜${state.user.role || '巡检用户'}` : '请先在首页完成演示登录。';
+      $('myLoginText').textContent = state.token ? '已登录' : '未登录';
+      $('myLoginText').className = 'tag ' + (state.token ? 'ok' : 'warn');
+      $('myRoleText').textContent = state.user ? (state.user.role || '巡检用户') : '-';
+      $('myApiText').textContent = state.apiBase;
+      $('myLoginActionBtn').textContent = state.token ? '退出登录' : '去首页登录';
       $('inspectTitle').textContent = state.retestTask ? '提交复测' : '发起巡检';
       $('retestHint').textContent = state.retestTask
         ? `复测任务：${state.retestTask.title || ''} ${state.retestTask.relatedItemNames ? '｜' + state.retestTask.relatedItemNames : ''}`
@@ -344,8 +378,14 @@
       await loadDashboard();
     }
     async function loadTasks() {
-      if (!state.token) return;
+      if (!state.token) {
+        state.tasks = [];
+        $('myTaskCount').textContent = '0';
+        $('tasksView').innerHTML = '<div class="empty">登录后查看复测任务</div>';
+        return;
+      }
       state.tasks = await api('/retest-tasks?enterpriseId=1&status=pending');
+      $('myTaskCount').textContent = state.tasks.length;
       $('tasksView').innerHTML = state.tasks.length ? state.tasks.map((task) => `
         <div class="action-card">
           <div class="row"><h3>${esc(task.title)}</h3><span class="tag warn">${esc(task.riskType || '预警')}</span></div>
@@ -359,6 +399,24 @@
           </div>
         </div>
       `).join('') : '<div class="empty">暂无待复测任务</div>';
+    }
+    function logout() {
+      state.token = '';
+      state.user = null;
+      state.boilers = [];
+      state.pack = null;
+      state.tasks = [];
+      state.retestTask = null;
+      localStorage.removeItem('H5_TOKEN');
+      localStorage.removeItem('H5_USER');
+      localStorage.removeItem('H5_RETEST_TASK');
+      $('boilerSelect').innerHTML = '';
+      $('statsGrid').innerHTML = '';
+      $('homeTasks').textContent = '登录后查看待复测提醒';
+      updateHeader();
+      loadTasks();
+      showPage('home');
+      toast('已退出登录');
     }
     function startRetest(id) {
       const task = state.tasks.find((item) => Number(item.id) === Number(id));
@@ -384,6 +442,7 @@
     $('verifyPackBtn').onclick = () => verifyPack().catch((e) => toast(e.message));
     $('submitInspectionBtn').onclick = () => submitInspection().catch((e) => toast(e.message));
     $('refreshTasksBtn').onclick = () => loadTasks().catch((e) => toast(e.message));
+    $('myLoginActionBtn').onclick = () => state.token ? logout() : showPage('home');
     $('clearRetestBtn').onclick = () => {
       state.retestTask = null;
       localStorage.removeItem('H5_RETEST_TASK');
