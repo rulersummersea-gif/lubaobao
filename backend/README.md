@@ -120,6 +120,10 @@ POST /auth/wx-login
 GET  /boilers
 GET  /material-packs
 POST /material-packs
+POST /material-packs/batch
+GET  /material-packs/{id}/qr
+GET  /material-packs/{id}/qr.png
+POST /material-packs/{id}/mark-printed
 POST /material-packs/verify
 POST /material-packs/activate
 POST /inspections

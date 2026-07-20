@@ -40,6 +40,15 @@
     .image-box { display: grid; grid-template-columns: minmax(220px, 360px) 1fr; gap: 14px; align-items: start; margin-top: 12px; }
     .image-box img { width: 100%; max-height: 320px; object-fit: contain; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
     .empty { color: #64748b; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 18px; text-align: center; }
+    .field { display: grid; gap: 5px; min-width: 150px; }
+    .field label { color: #475569; font-size: 12px; font-weight: 700; }
+    .field.wide { min-width: 220px; }
+    .pack-form { align-items: end; }
+    .qr-panel { display: none; grid-template-columns: 200px minmax(260px, 1fr); gap: 18px; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
+    .qr-panel.active { display: grid; }
+    .qr-panel img { width: 200px; height: 200px; border: 1px solid #cbd5e1; padding: 8px; object-fit: contain; }
+    .qr-code { font-size: 19px; font-weight: 800; margin-bottom: 8px; }
+    .nowrap { white-space: nowrap; }
     pre { white-space: pre-wrap; word-break: break-word; background: #0b1020; color: #dbeafe; padding: 12px; border-radius: 8px; max-height: 360px; overflow: auto; }
     .tab { display: none; }
     .tab.active { display: block; }
@@ -47,7 +56,7 @@
       .wrap { grid-template-columns: 1fr; }
       .side { position: static; }
       .grid { grid-template-columns: 1fr 1fr; }
-      .detail-grid, .image-box { grid-template-columns: 1fr; }
+      .detail-grid, .image-box, .qr-panel { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -116,22 +125,47 @@
     <section id="packs" class="tab">
       <div class="card">
         <h2>材料包入库</h2>
-        <div class="row">
-          <input id="packEnterprise" value="1" placeholder="企业ID">
-          <input id="packCode" value="PACK-002" placeholder="材料包编码">
-          <input id="packType" value="基础版" placeholder="类型">
-          <input id="packExpire" value="2027-12-31" placeholder="有效期">
-          <button id="createPackBtn">入库</button>
+        <div class="row pack-form">
+          <div class="field wide"><label for="packEnterprise">预分配企业</label><select id="packEnterprise"></select></div>
+          <div class="field"><label for="packBatch">生产批次</label><input id="packBatch" placeholder="如 202607-A"></div>
+          <div class="field"><label for="packCode">单包编码/批量前缀</label><input id="packCode" placeholder="留空自动生成"></div>
+          <div class="field"><label for="packQuantity">入库数量</label><input id="packQuantity" type="number" min="1" max="200" value="1"></div>
+          <div class="field"><label for="packType">材料包类型</label><input id="packType" value="基础版"></div>
+          <div class="field"><label for="packProductionDate">生产日期</label><input id="packProductionDate" type="date"></div>
+          <div class="field"><label for="packExpire">有效期至</label><input id="packExpire" type="date" value="2027-12-31"></div>
+          <div class="field"><label for="packSalesOrder">销售单号</label><input id="packSalesOrder" placeholder="可选"></div>
+          <div class="field"><label for="packWarehouse">仓库/库位</label><input id="packWarehouse" placeholder="可选"></div>
+          <button id="createPackBtn">确认入库</button>
         </div>
       </div>
       <div class="card">
         <div class="row">
           <h2 style="margin-right:auto">材料包列表</h2>
-          <input id="packEnterpriseFilter" value="1" placeholder="企业ID">
+          <select id="packEnterpriseFilter"></select>
+          <select id="packStatusFilter">
+            <option value="">全部状态</option>
+            <option value="unactivated">未激活</option>
+            <option value="activated">已激活</option>
+            <option value="expired">已过期</option>
+            <option value="invalid">已作废</option>
+          </select>
+          <input id="packSearch" placeholder="搜索编码/批次/销售单">
           <select id="packBindBoiler"></select>
           <button class="secondary" id="loadPacksBtn">刷新列表</button>
         </div>
-        <table><thead><tr><th>ID</th><th>编码</th><th>状态</th><th>锅炉</th><th>有效期</th><th>操作</th></tr></thead><tbody id="packsBody"></tbody></table>
+        <table><thead><tr><th>编码 / 批次</th><th>企业</th><th>状态</th><th>绑定信息</th><th>二维码</th><th>有效期</th><th>入库信息</th><th>操作</th></tr></thead><tbody id="packsBody"></tbody></table>
+        <div id="packQrPanel" class="qr-panel">
+          <img id="packQrImage" alt="材料包二维码">
+          <div>
+            <div id="packQrCode" class="qr-code">-</div>
+            <div id="packQrMeta" class="muted"></div>
+            <div class="row" style="margin-top:14px">
+              <button id="printPackQrBtn">打印二维码</button>
+              <button class="secondary" id="downloadPackQrBtn">下载图片</button>
+              <button class="secondary" id="closePackQrBtn">关闭</button>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -303,6 +337,8 @@ const state = {
   users: [],
   standards: [],
   retestTasks: [],
+  packs: [],
+  packQr: null,
 };
 
 function base() { return $('base').value.trim() || '/api'; }
@@ -317,8 +353,18 @@ async function api(path, options = {}) {
   showDebug(data);
   return data;
 }
+async function apiBlob(path) {
+  const res = await fetch(base() + path, { headers: headers() });
+  if (!res.ok) {
+    const text = await res.text();
+    let error = text;
+    try { error = JSON.parse(text); } catch {}
+    throw error;
+  }
+  return res.blob();
+}
 function tag(status) {
-  const cls = ['activated', 'submitted', 'done', 'normal', 'active'].includes(String(status)) ? 'ok' : 'warn';
+  const cls = ['activated', 'submitted', 'done', 'normal', 'active', '已激活', '正常', '已完成'].includes(String(status)) ? 'ok' : 'warn';
   return `<span class="tag ${cls}">${status || '-'}</span>`;
 }
 function esc(value) {
@@ -367,6 +413,15 @@ async function loadEnterprises() {
           : `<button class="secondary" onclick="setEnterpriseStatus(${e.id}, 'active')">启用</button>`}
       </td>
     </tr>`).join('');
+  syncEnterpriseSelects();
+}
+function syncEnterpriseSelects() {
+  ['packEnterprise', 'packEnterpriseFilter'].forEach((id) => {
+    const select = $(id);
+    const current = select.value;
+    select.innerHTML = state.enterprises.filter((e) => e.status === 'active').map((e) => `<option value="${e.id}">${esc(e.name)}（${e.id}）</option>`).join('');
+    if ([...select.options].some((option) => option.value === current)) select.value = current;
+  });
 }
 function resetEnterpriseForm() {
   $('enterpriseId').value = '';
@@ -407,39 +462,113 @@ async function loadPacks() {
     api('/material-packs?enterpriseId=' + encodeURIComponent(enterpriseId)),
     api('/boilers?enterpriseId=' + encodeURIComponent(enterpriseId))
   ]);
+  state.packs = packs;
   $('packBindBoiler').innerHTML = boilers.map((b) => `<option value="${b.id}">${esc(b.name || b.model || b.id)}（${b.id}）</option>`).join('');
+  renderPacks();
+}
+function packStatusText(status) {
+  return ({ unactivated: '未激活', activated: '已激活', expired: '已过期', invalid: '已作废', exhausted: '已用完' })[status] || status || '-';
+}
+function renderPacks() {
+  const status = $('packStatusFilter').value;
+  const keyword = $('packSearch').value.trim().toLowerCase();
+  const packs = state.packs.filter((p) => {
+    const effective = p.effectiveStatus || p.status;
+    const haystack = [p.code, p.batchNo, p.salesOrderNo, p.enterpriseName].join(' ').toLowerCase();
+    return (!status || effective === status) && (!keyword || haystack.includes(keyword));
+  });
   $('packsBody').innerHTML = packs.map((p) => `
     <tr>
-      <td>${p.id}</td><td>${p.code}</td><td>${tag(p.status)}</td><td>${p.boilerName ? `${esc(p.boilerName)}（${p.boilerId}）` : (p.boilerId || '-')}</td><td>${p.expireAt || '-'}</td>
+      <td><b>${esc(p.code)}</b><div class="muted">${esc(p.batchNo || '未填写批次')}</div></td>
+      <td>${esc(p.enterpriseName || p.enterpriseId)}</td>
+      <td>${tag(packStatusText(p.effectiveStatus || p.status))}</td>
+      <td>${p.boilerName ? `${esc(p.boilerName)}（${p.boilerId}）` : '未绑定锅炉'}<div class="muted">用户绑定 ${p.userBindingCount || 0} 人</div></td>
+      <td>${p.printedAt ? '已打印' : p.qrReady ? '已生成' : '未生成'}<div class="muted">${p.printedAt || p.qrGeneratedAt || '-'}</div></td>
+      <td class="nowrap">${p.expireAt || '-'}</td>
+      <td>${esc(p.warehouseLocation || '-')}<div class="muted">${esc(p.salesOrderNo || '无销售单')} · ${esc(p.createdByName || '-')}</div></td>
       <td>
-        <button class="secondary" onclick="activatePack('${p.code}')">绑定所选锅炉</button>
-        <button class="secondary" onclick="unbindPack('${p.code}')">解绑</button>
-        <button class="warn" onclick="invalidatePack('${p.code}')">作废</button>
+        <button class="secondary" onclick="showPackQr(${p.id})">二维码</button>
+        ${p.status !== 'invalid' ? `<button class="secondary" onclick="activatePack(${p.id})">绑定锅炉</button>` : ''}
+        ${p.boilerId ? `<button class="secondary" onclick="unbindPack(${p.id})">解绑</button>` : ''}
+        ${p.status !== 'invalid' ? `<button class="warn" onclick="invalidatePack(${p.id})">作废</button>` : ''}
       </td>
     </tr>`).join('');
+  if (!packs.length) $('packsBody').innerHTML = '<tr><td colspan="8" class="empty">没有符合条件的材料包</td></tr>';
 }
 async function createPack() {
-  const enterpriseId = Number($('packEnterprise').value || $('packEnterpriseFilter').value || 1);
-  await api('/material-packs', { method: 'POST', body: JSON.stringify({ code: $('packCode').value.trim(), type: $('packType').value.trim(), expireAt: $('packExpire').value.trim(), enterpriseId }) });
+  const enterpriseId = Number($('packEnterprise').value || 1);
+  const quantity = Number($('packQuantity').value || 1);
+  const common = {
+    enterpriseId,
+    type: $('packType').value.trim(),
+    expireAt: $('packExpire').value || null,
+    batchNo: $('packBatch').value.trim() || null,
+    salesOrderNo: $('packSalesOrder').value.trim() || null,
+    warehouseLocation: $('packWarehouse').value.trim() || null,
+    productionDate: $('packProductionDate').value || null,
+  };
+  if (quantity > 1) {
+    await api('/material-packs/batch', { method: 'POST', body: JSON.stringify({ ...common, quantity, codePrefix: $('packCode').value.trim() || null }) });
+  } else {
+    await api('/material-packs', { method: 'POST', body: JSON.stringify({ ...common, code: $('packCode').value.trim() || null }) });
+  }
+  $('packCode').value = '';
+  $('packQuantity').value = '1';
   $('packEnterpriseFilter').value = enterpriseId;
   await loadPacks();
+  await loadDashboard();
 }
-async function activatePack(code) {
+function findPack(id) { return state.packs.find((p) => p.id === id); }
+async function activatePack(id) {
+  const pack = findPack(id);
+  if (!pack) return;
   const enterpriseId = Number($('packEnterpriseFilter').value || 1);
   const boilerId = Number($('packBindBoiler').value || 0);
   if (!boilerId) throw new Error('请先选择要绑定的锅炉');
-  await api('/material-packs/activate', { method: 'POST', body: JSON.stringify({ code, enterpriseId, boilerId }) });
+  await api('/material-packs/activate', { method: 'POST', body: JSON.stringify({ code: pack.code, enterpriseId, boilerId }) });
   await loadPacks();
 }
-async function unbindPack(code) {
-  await api('/material-packs/unbind', { method: 'POST', body: JSON.stringify({ code }) });
+async function unbindPack(id) {
+  const pack = findPack(id);
+  if (!pack || !confirm(`确认解绑材料包 ${pack.code}？`)) return;
+  await api('/material-packs/unbind', { method: 'POST', body: JSON.stringify({ code: pack.code }) });
   await loadPacks();
 }
-async function invalidatePack(code) {
-  if (!confirm(`确认作废材料包 ${code}？`)) return;
-  await api('/material-packs/invalidate', { method: 'POST', body: JSON.stringify({ code }) });
+async function invalidatePack(id) {
+  const pack = findPack(id);
+  if (!pack || !confirm(`确认作废材料包 ${pack.code}？作废后不能继续巡检。`)) return;
+  await api('/material-packs/invalidate', { method: 'POST', body: JSON.stringify({ code: pack.code }) });
   await loadPacks();
 }
+async function showPackQr(id) {
+  const info = await api('/material-packs/' + id + '/qr');
+  const blob = await apiBlob('/material-packs/' + id + '/qr.png');
+  if (state.packQr?.url) URL.revokeObjectURL(state.packQr.url);
+  const url = URL.createObjectURL(blob);
+  state.packQr = { id, code: info.code, payload: info.qrPayload, url };
+  $('packQrImage').src = url;
+  $('packQrCode').textContent = info.code;
+  $('packQrMeta').textContent = `扫码内容：${info.qrPayload}`;
+  $('packQrPanel').classList.add('active');
+}
+async function printPackQr() {
+  if (!state.packQr) return;
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) throw new Error('浏览器阻止了打印窗口，请允许弹出窗口');
+  printWindow.document.write(`<title>${esc(state.packQr.code)}</title><div style="font-family:Arial;text-align:center;padding:32px"><h2>${esc(state.packQr.code)}</h2><img src="${state.packQr.url}" style="width:320px;height:320px"><p>炉保保材料包</p></div>`);
+  printWindow.document.close();
+  printWindow.onload = () => printWindow.print();
+  await api('/material-packs/' + state.packQr.id + '/mark-printed', { method: 'POST' });
+  await loadPacks();
+}
+function downloadPackQr() {
+  if (!state.packQr) return;
+  const link = document.createElement('a');
+  link.href = state.packQr.url;
+  link.download = state.packQr.code + '.png';
+  link.click();
+}
+function closePackQr() { $('packQrPanel').classList.remove('active'); }
 async function loadBoilers() {
   const enterpriseId = $('boilerEnterpriseFilter').value || 1;
   const boilers = await api('/boilers?enterpriseId=' + encodeURIComponent(enterpriseId));
@@ -754,7 +883,8 @@ async function loadReport() {
 }
 async function refreshAll() {
   await loadDashboard();
-  await Promise.all([loadEnterprises(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
+  await loadEnterprises();
+  await Promise.all([loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
 }
 
 document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
@@ -765,6 +895,12 @@ $('resetEnterpriseFormBtn').onclick = () => resetEnterpriseForm();
 $('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
 $('createPackBtn').onclick = () => createPack().catch(showDebug);
 $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
+$('packEnterpriseFilter').onchange = () => loadPacks().catch(showDebug);
+$('packStatusFilter').onchange = () => renderPacks();
+$('packSearch').oninput = () => renderPacks();
+$('printPackQrBtn').onclick = () => printPackQr().catch(showDebug);
+$('downloadPackQrBtn').onclick = () => downloadPackQr();
+$('closePackQrBtn').onclick = () => closePackQr();
 $('saveBoilerBtn').onclick = () => saveBoiler().catch(showDebug);
 $('resetBoilerFormBtn').onclick = () => resetBoilerForm();
 $('loadBoilersBtn').onclick = () => loadBoilers().catch(showDebug);

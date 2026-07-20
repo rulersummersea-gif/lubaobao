@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import secrets
@@ -13,8 +14,9 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
+import qrcode
 
 
 DB_PATH = Path(os.getenv("LUBAOBAO_DB", "/tmp/lubaobao.sqlite3"))
@@ -28,9 +30,10 @@ MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "lubaobao")
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret-change-me")
 WX_APPID = os.getenv("WX_APPID", "")
 WX_APPSECRET = os.getenv("WX_APPSECRET", "")
+PACK_QR_BASE_URL = os.getenv("PACK_QR_BASE_URL", "https://mp.lubaobao.cn/bind")
 PASSWORD_ITERATIONS = 200000
 
-app = FastAPI(title="Lubaobao API", version="0.5.0-complete-flow")
+app = FastAPI(title="Lubaobao API", version="0.6.0-pack-inventory")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -458,6 +461,24 @@ def ensure_column(conn, table: str, column: str, definition: str) -> None:
         pass
 
 
+def ensure_pack_qr_index(conn) -> None:
+    try:
+        if DB_DRIVER == "mysql":
+            exists = conn.execute(
+                """
+                SELECT COUNT(*) AS c FROM information_schema.statistics
+                WHERE table_schema = ? AND table_name = 'material_packs' AND index_name = 'uq_material_packs_qr_token'
+                """,
+                (MYSQL_DATABASE,),
+            ).fetchone()["c"] > 0
+            if not exists:
+                conn.execute("CREATE UNIQUE INDEX uq_material_packs_qr_token ON material_packs(qr_token)")
+        else:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_material_packs_qr_token ON material_packs(qr_token)")
+    except Exception:
+        pass
+
+
 def ensure_onboarding_schema(conn) -> None:
     if DB_DRIVER == "mysql":
         conn.execute(
@@ -517,6 +538,16 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "users", "wx_openid", "VARCHAR(128) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "inspections", "inspector_user_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "inspections", "inspector_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "batch_no", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "sales_order_no", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "warehouse_location", "VARCHAR(128) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "production_date", "VARCHAR(32) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "qr_token", "VARCHAR(128) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "qr_generated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "printed_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "created_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "material_packs", "created_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_pack_qr_index(conn)
     ensure_onboarding_schema(conn)
 
 
@@ -606,6 +637,15 @@ def init_sqlite() -> None:
               status TEXT NOT NULL DEFAULT 'unactivated',
               boiler_id INTEGER,
               expire_at TEXT,
+              batch_no TEXT,
+              sales_order_no TEXT,
+              warehouse_location TEXT,
+              production_date TEXT,
+              qr_token TEXT,
+              qr_generated_at TEXT,
+              printed_at TEXT,
+              created_by INTEGER,
+              created_by_name TEXT,
               created_at TEXT NOT NULL,
               activated_at TEXT
             );
@@ -758,6 +798,15 @@ def init_mysql() -> None:
               status VARCHAR(20) NOT NULL DEFAULT 'unactivated',
               boiler_id BIGINT NULL,
               expire_at VARCHAR(32) NULL,
+              batch_no VARCHAR(64) NULL,
+              sales_order_no VARCHAR(64) NULL,
+              warehouse_location VARCHAR(128) NULL,
+              production_date VARCHAR(32) NULL,
+              qr_token VARCHAR(128) NULL,
+              qr_generated_at DATETIME NULL,
+              printed_at DATETIME NULL,
+              created_by BIGINT NULL,
+              created_by_name VARCHAR(64) NULL,
               created_at DATETIME NOT NULL,
               activated_at DATETIME NULL,
               KEY idx_packs_enterprise (enterprise_id),
@@ -989,14 +1038,31 @@ class BoilerUpdateReq(BaseModel):
 
 
 class PackCreateReq(BaseModel):
-    code: str
+    code: Optional[str] = None
     enterpriseId: int = 1
     type: str = "基础版"
     expireAt: Optional[str] = None
+    batchNo: Optional[str] = None
+    salesOrderNo: Optional[str] = None
+    warehouseLocation: Optional[str] = None
+    productionDate: Optional[str] = None
+
+
+class PackBatchCreateReq(BaseModel):
+    enterpriseId: int = 1
+    quantity: int = Field(default=1, ge=1, le=200)
+    codePrefix: Optional[str] = None
+    type: str = "基础版"
+    expireAt: Optional[str] = None
+    batchNo: Optional[str] = None
+    salesOrderNo: Optional[str] = None
+    warehouseLocation: Optional[str] = None
+    productionDate: Optional[str] = None
 
 
 class PackVerifyReq(BaseModel):
     code: str
+    qrToken: Optional[str] = None
 
 
 class PackActivateReq(BaseModel):
@@ -1059,7 +1125,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["pack-management", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["pack-inventory", "pack-qr", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -1855,40 +1921,172 @@ def update_boiler(boiler_id: int, req: BoilerUpdateReq, authorization: Optional[
         return row_to_dict(row)
 
 
+def generate_pack_code(prefix: Optional[str] = None) -> str:
+    clean_prefix = "".join(ch for ch in (prefix or "LB") if ch.isalnum() or ch in ("-", "_"))[:20] or "LB"
+    return f"{clean_prefix}-{datetime.utcnow().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
+
+
+def pack_qr_payload(pack: dict) -> str:
+    query = urllib.parse.urlencode({"packCode": pack["code"], "qrToken": pack["qr_token"]})
+    separator = "&" if "?" in PACK_QR_BASE_URL else "?"
+    return f"{PACK_QR_BASE_URL}{separator}{query}"
+
+
+def material_pack_response(row) -> dict:
+    pack = row_to_dict(row)
+    if not pack:
+        return {}
+    effective_status = "expired" if pack_is_expired(pack.get("expireAt") or pack.get("expire_at")) else pack.get("status")
+    return {
+        "id": pack["id"],
+        "enterpriseId": pack.get("enterpriseId") or pack.get("enterprise_id"),
+        "enterpriseName": pack.get("enterpriseName") or pack.get("enterprise_name") or "",
+        "code": pack["code"],
+        "type": pack.get("type") or "",
+        "status": pack.get("status"),
+        "effectiveStatus": effective_status,
+        "boilerId": pack.get("boilerId") or pack.get("boiler_id"),
+        "boilerName": pack.get("boilerName") or pack.get("boiler_name") or "",
+        "expireAt": pack.get("expireAt") or pack.get("expire_at"),
+        "batchNo": pack.get("batchNo") or pack.get("batch_no") or "",
+        "salesOrderNo": pack.get("salesOrderNo") or pack.get("sales_order_no") or "",
+        "warehouseLocation": pack.get("warehouseLocation") or pack.get("warehouse_location") or "",
+        "productionDate": pack.get("productionDate") or pack.get("production_date") or "",
+        "qrReady": bool(pack.get("qrToken") or pack.get("qr_token")),
+        "qrGeneratedAt": pack.get("qrGeneratedAt") or pack.get("qr_generated_at"),
+        "printedAt": pack.get("printedAt") or pack.get("printed_at"),
+        "createdByName": pack.get("createdByName") or pack.get("created_by_name") or "",
+        "createdAt": pack.get("createdAt") or pack.get("created_at"),
+        "userBindingCount": int(pack.get("userBindingCount") or pack.get("user_binding_count") or 0),
+    }
+
+
+def insert_material_pack(conn, req, current_user: dict, code: str) -> dict:
+    qr_token = secrets.token_urlsafe(24)
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO material_packs(
+              enterprise_id, code, type, status, expire_at, batch_no, sales_order_no,
+              warehouse_location, production_date, qr_token, qr_generated_at,
+              created_by, created_by_name, created_at
+            ) VALUES(?, ?, ?, 'unactivated', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                req.enterpriseId,
+                code,
+                (req.type or "基础版").strip(),
+                req.expireAt,
+                (req.batchNo or "").strip() or None,
+                (req.salesOrderNo or "").strip() or None,
+                (req.warehouseLocation or "").strip() or None,
+                (req.productionDate or "").strip() or None,
+                qr_token,
+                now(),
+                current_user.get("id"),
+                current_user.get("name") or current_user.get("username"),
+                now(),
+            ),
+        )
+    except Exception as exc:
+        if not is_integrity_error(exc):
+            raise
+        raise HTTPException(status_code=409, detail=f"材料包编码已存在：{code}")
+    return {"id": cur.lastrowid, "code": code, "enterpriseId": req.enterpriseId, "status": "unactivated"}
+
+
 @app.get("/material-packs")
 def list_packs(enterpriseId: int = 1):
     with db() as conn:
         rows = conn.execute(
             """
             SELECT p.id, p.enterprise_id AS enterpriseId, p.code, p.type, p.status,
-                   p.boiler_id AS boilerId, b.name AS boilerName, p.expire_at AS expireAt
+                   p.boiler_id AS boilerId, b.name AS boilerName, p.expire_at AS expireAt,
+                   e.name AS enterpriseName, p.batch_no AS batchNo, p.sales_order_no AS salesOrderNo,
+                   p.warehouse_location AS warehouseLocation, p.production_date AS productionDate,
+                   p.qr_token AS qrToken, p.qr_generated_at AS qrGeneratedAt, p.printed_at AS printedAt,
+                   p.created_by_name AS createdByName, p.created_at AS createdAt,
+                   (SELECT COUNT(*) FROM user_material_pack_bindings ub
+                    WHERE ub.material_pack_id = p.id AND ub.status = 'active') AS userBindingCount
             FROM material_packs p
             LEFT JOIN boilers b ON b.id = p.boiler_id
+            LEFT JOIN enterprises e ON e.id = p.enterprise_id
             WHERE p.enterprise_id = ? ORDER BY p.id DESC
             """,
             (enterpriseId,),
         )
-        return [row_to_dict(row) for row in rows]
+        return [material_pack_response(row) for row in rows]
 
 
 @app.post("/material-packs")
 def create_pack(req: PackCreateReq, authorization: Optional[str] = Header(None)):
     current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
     ensure_enterprise_scope(current_user, req.enterpriseId)
+    code = (req.code or "").strip() or generate_pack_code(req.batchNo)
     with db() as conn:
-        try:
-            cur = conn.execute(
-                """
-                INSERT INTO material_packs(enterprise_id, code, type, status, expire_at, created_at)
-                VALUES(?, ?, ?, 'unactivated', ?, ?)
-                """,
-                (req.enterpriseId, req.code, req.type, req.expireAt, now()),
-            )
-        except Exception as exc:
-            if not is_integrity_error(exc):
-                raise
-            raise HTTPException(status_code=409, detail="检测包编码已存在")
-        return {"id": cur.lastrowid, "code": req.code, "enterpriseId": req.enterpriseId, "status": "unactivated"}
+        enterprise = conn.execute("SELECT id FROM enterprises WHERE id = ? AND status = 'active'", (req.enterpriseId,)).fetchone()
+        if not enterprise:
+            raise HTTPException(status_code=404, detail="企业不存在或已停用")
+        return insert_material_pack(conn, req, current_user, code)
+
+
+@app.post("/material-packs/batch")
+def create_pack_batch(req: PackBatchCreateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    ensure_enterprise_scope(current_user, req.enterpriseId)
+    with db() as conn:
+        enterprise = conn.execute("SELECT id FROM enterprises WHERE id = ? AND status = 'active'", (req.enterpriseId,)).fetchone()
+        if not enterprise:
+            raise HTTPException(status_code=404, detail="企业不存在或已停用")
+        created = []
+        for _ in range(req.quantity):
+            created.append(insert_material_pack(conn, req, current_user, generate_pack_code(req.codePrefix or req.batchNo)))
+    return {"count": len(created), "batchNo": req.batchNo or "", "items": created}
+
+
+@app.get("/material-packs/{pack_id}/qr")
+def get_pack_qr(pack_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE id = ?", (pack_id,)).fetchone())
+        if not pack:
+            raise HTTPException(status_code=404, detail="材料包不存在")
+        ensure_enterprise_scope(current_user, pack["enterprise_id"])
+        if not pack.get("qr_token"):
+            pack["qr_token"] = secrets.token_urlsafe(24)
+            conn.execute("UPDATE material_packs SET qr_token = ?, qr_generated_at = ? WHERE id = ?", (pack["qr_token"], now(), pack_id))
+    return {"packId": pack_id, "code": pack["code"], "qrPayload": pack_qr_payload(pack), "qrGeneratedAt": pack.get("qr_generated_at") or now()}
+
+
+@app.get("/material-packs/{pack_id}/qr.png")
+def get_pack_qr_png(pack_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE id = ?", (pack_id,)).fetchone())
+        if not pack:
+            raise HTTPException(status_code=404, detail="材料包不存在")
+        ensure_enterprise_scope(current_user, pack["enterprise_id"])
+        if not pack.get("qr_token"):
+            pack["qr_token"] = secrets.token_urlsafe(24)
+            conn.execute("UPDATE material_packs SET qr_token = ?, qr_generated_at = ? WHERE id = ?", (pack["qr_token"], now(), pack_id))
+    image = qrcode.make(pack_qr_payload(pack))
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    output.seek(0)
+    return StreamingResponse(output, media_type="image/png", headers={"Content-Disposition": f'inline; filename="{pack["code"]}.png"'})
+
+
+@app.post("/material-packs/{pack_id}/mark-printed")
+def mark_pack_printed(pack_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        pack = row_to_dict(conn.execute("SELECT id, enterprise_id FROM material_packs WHERE id = ?", (pack_id,)).fetchone())
+        if not pack:
+            raise HTTPException(status_code=404, detail="材料包不存在")
+        ensure_enterprise_scope(current_user, pack["enterprise_id"])
+        printed_at = now()
+        conn.execute("UPDATE material_packs SET printed_at = ? WHERE id = ?", (printed_at, pack_id))
+    return {"id": pack_id, "printedAt": printed_at}
 
 
 @app.post("/material-packs/verify")
@@ -1907,6 +2105,8 @@ def verify_pack(req: PackVerifyReq):
         )
     if not pack:
         raise HTTPException(status_code=404, detail="检测包不存在")
+    if req.qrToken and pack.get("qr_token") and not hmac.compare_digest(req.qrToken, pack["qr_token"]):
+        raise HTTPException(status_code=400, detail="材料包二维码无效")
     if pack["status"] in ("expired", "invalid", "exhausted"):
         raise HTTPException(status_code=400, detail="检测包不可用")
     return {
@@ -1930,6 +2130,8 @@ def activate_pack(req: PackActivateReq):
         pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE code = ?", (req.code,)).fetchone())
         if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
+        if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
+            raise HTTPException(status_code=400, detail="检测包不可用")
         enterprise_id = req.enterpriseId or pack["enterprise_id"]
         if req.boilerId:
             boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (req.boilerId,)).fetchone())
@@ -1957,25 +2159,37 @@ def activate_pack(req: PackActivateReq):
 
 @app.post("/material-packs/invalidate")
 def invalidate_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
-    require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
     with db() as conn:
-        cur = conn.execute("UPDATE material_packs SET status = 'invalid' WHERE code = ?", (req.code,))
-        if cur.rowcount == 0:
+        pack = row_to_dict(conn.execute("SELECT id, enterprise_id FROM material_packs WHERE code = ?", (req.code,)).fetchone())
+        if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
+        ensure_enterprise_scope(current_user, pack["enterprise_id"])
+        cur = conn.execute("UPDATE material_packs SET status = 'invalid' WHERE code = ?", (req.code,))
+        conn.execute(
+            "UPDATE user_material_pack_bindings SET status = 'inactive', unbound_at = ? WHERE material_pack_id = ? AND status = 'active'",
+            (now(), pack["id"]),
+        )
     return {"code": req.code, "status": "invalid"}
 
 
 @app.post("/material-packs/unbind")
 def unbind_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
-    require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
     with db() as conn:
+        pack = row_to_dict(conn.execute("SELECT id, enterprise_id FROM material_packs WHERE code = ?", (req.code,)).fetchone())
+        if not pack:
+            raise HTTPException(status_code=404, detail="检测包不存在")
+        ensure_enterprise_scope(current_user, pack["enterprise_id"])
         cur = conn.execute(
-            "UPDATE material_packs SET boiler_id = NULL, status = 'activated' WHERE code = ?",
+            "UPDATE material_packs SET boiler_id = NULL, status = 'unactivated', activated_at = NULL WHERE code = ?",
             (req.code,),
         )
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="检测包不存在")
-    return {"code": req.code, "status": "activated", "boilerId": None}
+        conn.execute(
+            "UPDATE user_material_pack_bindings SET status = 'inactive', unbound_at = ? WHERE material_pack_id = ? AND status = 'active'",
+            (now(), pack["id"]),
+        )
+    return {"code": req.code, "status": "unactivated", "boilerId": None}
 
 
 def water_quality_limit_response(row) -> dict:

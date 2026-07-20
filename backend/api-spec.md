@@ -123,12 +123,47 @@
 
 ### POST `/material-packs`
 ```json
-{ "code": "PACK-002", "enterpriseId": 1, "type": "基础版", "expireAt": "2027-12-31" }
+{
+  "code": null,
+  "enterpriseId": 1,
+  "type": "基础版",
+  "expireAt": "2027-12-31",
+  "batchNo": "202607-A",
+  "salesOrderNo": "SO-202607-001",
+  "warehouseLocation": "A库-01",
+  "productionDate": "2026-07-20"
+}
 ```
+`code` 留空时由服务端生成唯一编码，同时生成独立二维码令牌。
+
+### POST `/material-packs/batch`
+```json
+{
+  "enterpriseId": 1,
+  "quantity": 50,
+  "codePrefix": "LB",
+  "type": "基础版",
+  "expireAt": "2027-12-31",
+  "batchNo": "202607-A",
+  "salesOrderNo": "SO-202607-001",
+  "warehouseLocation": "A库-01",
+  "productionDate": "2026-07-20"
+}
+```
+一次最多入库 `200` 个材料包，批量操作在同一事务中完成。
+
+### GET `/material-packs/{id}/qr`
+返回材料包编码和二维码载荷。
+
+### GET `/material-packs/{id}/qr.png`
+返回可下载、打印的 PNG 二维码。
+
+### POST `/material-packs/{id}/mark-printed`
+记录二维码最近打印时间。
 
 ### POST `/material-packs/verify`
 ```json
-{ "code": "PACK-001" }
+{ "code": "PACK-001", "qrToken": "二维码中的令牌，可选" }
 ```
 校验成功后返回材料包的 `boilerId`、`boilerName`、`status` 和有效期，巡检端据此确认材料包与当前锅炉一致。
 
@@ -142,11 +177,13 @@
 ```json
 { "code": "PACK-001" }
 ```
+解绑会同步结束该材料包当前有效的用户绑定，并将材料包恢复为未激活状态。
 
 ### POST `/material-packs/invalidate`
 ```json
 { "code": "PACK-001" }
 ```
+作废会同步结束该材料包当前有效的用户绑定。
 
 ## 4. 巡检
 ### POST `/inspections`

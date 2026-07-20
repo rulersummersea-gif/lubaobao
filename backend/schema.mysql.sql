@@ -38,10 +38,20 @@ CREATE TABLE IF NOT EXISTS material_packs (
   status VARCHAR(20) NOT NULL DEFAULT 'unactivated',
   boiler_id BIGINT NULL,
   expire_at VARCHAR(32) NULL,
+  batch_no VARCHAR(64) NULL,
+  sales_order_no VARCHAR(64) NULL,
+  warehouse_location VARCHAR(128) NULL,
+  production_date VARCHAR(32) NULL,
+  qr_token VARCHAR(128) NULL,
+  qr_generated_at DATETIME NULL,
+  printed_at DATETIME NULL,
+  created_by BIGINT NULL,
+  created_by_name VARCHAR(64) NULL,
   created_at DATETIME NOT NULL,
   activated_at DATETIME NULL,
   KEY idx_packs_enterprise (enterprise_id),
-  KEY idx_packs_boiler (boiler_id)
+  KEY idx_packs_boiler (boiler_id),
+  UNIQUE KEY uq_material_packs_qr_token (qr_token)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS users (
