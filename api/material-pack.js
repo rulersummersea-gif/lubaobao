@@ -5,9 +5,13 @@ function verifyMaterialPack(code) {
   return request({ url, method: 'POST', data: { code } })
 }
 
+function getMaterialPacks(params = {}) {
+  return request({ url: '/material-packs', method: 'GET', data: params })
+}
+
 function activateMaterialPack(data) {
   const url = '/material-packs/activate'
   return request({ url, method: 'POST', data })
 }
 
-module.exports = { verifyMaterialPack, activateMaterialPack }
+module.exports = { verifyMaterialPack, getMaterialPacks, activateMaterialPack }

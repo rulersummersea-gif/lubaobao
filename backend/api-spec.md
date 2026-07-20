@@ -107,6 +107,7 @@
 ```json
 { "code": "PACK-001" }
 ```
+校验成功后返回材料包的 `boilerId`、`boilerName`、`status` 和有效期，巡检端据此确认材料包与当前锅炉一致。
 
 ### POST `/material-packs/activate`
 ```json
@@ -129,6 +130,7 @@
 ```json
 { "boilerId": 1001, "materialPackId": 5001, "inspectionType": "daily", "retestTaskId": null }
 ```
+创建时会校验材料包已激活、已绑定当前锅炉，并且材料包和锅炉属于同一企业。
 复测巡检时传 `inspectionType: "retest"` 和对应 `retestTaskId`，识别完成后会自动回填到原复测任务。
 
 ### POST `/inspections/create`

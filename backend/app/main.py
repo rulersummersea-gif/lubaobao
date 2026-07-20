@@ -1572,7 +1572,17 @@ def create_pack(req: PackCreateReq, authorization: Optional[str] = Header(None))
 @app.post("/material-packs/verify")
 def verify_pack(req: PackVerifyReq):
     with db() as conn:
-        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE code = ?", (req.code,)).fetchone())
+        pack = row_to_dict(
+            conn.execute(
+                """
+                SELECT p.*, b.name AS boiler_name
+                FROM material_packs p
+                LEFT JOIN boilers b ON b.id = p.boiler_id
+                WHERE p.code = ?
+                """,
+                (req.code,),
+            ).fetchone()
+        )
     if not pack:
         raise HTTPException(status_code=404, detail="检测包不存在")
     if pack["status"] in ("expired", "invalid", "exhausted"):
@@ -1583,6 +1593,8 @@ def verify_pack(req: PackVerifyReq):
             "id": pack["id"],
             "code": pack["code"],
             "enterpriseId": pack["enterprise_id"],
+            "boilerId": pack["boiler_id"],
+            "boilerName": pack.get("boiler_name") or "",
             "status": pack["status"],
             "type": pack["type"],
             "expireAt": pack["expire_at"],
@@ -2204,12 +2216,20 @@ def save_inspection_test_results(conn, inspection_id: int, items: list[dict]) ->
 @app.post("/inspections")
 def create_inspection(req: InspectionCreateReq):
     with db() as conn:
-        boiler = conn.execute("SELECT * FROM boilers WHERE id = ?", (req.boilerId,)).fetchone()
+        boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (req.boilerId,)).fetchone())
         if not boiler:
             raise HTTPException(status_code=404, detail="锅炉不存在")
-        pack = conn.execute("SELECT * FROM material_packs WHERE id = ?", (req.materialPackId,)).fetchone()
+        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE id = ?", (req.materialPackId,)).fetchone())
         if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
+        if pack["status"] != "activated":
+            raise HTTPException(status_code=400, detail="检测包尚未激活或已不可用")
+        if int(pack["enterprise_id"]) != int(boiler["enterprise_id"]):
+            raise HTTPException(status_code=400, detail="检测包和锅炉不属于同一企业")
+        if not pack["boiler_id"]:
+            raise HTTPException(status_code=400, detail="检测包尚未绑定锅炉")
+        if int(pack["boiler_id"]) != int(req.boilerId):
+            raise HTTPException(status_code=400, detail="检测包未绑定当前锅炉")
         if req.retestTaskId:
             task = row_to_dict(conn.execute("SELECT * FROM retest_tasks WHERE id = ?", (req.retestTaskId,)).fetchone())
             if not task:

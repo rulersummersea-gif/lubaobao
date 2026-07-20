@@ -1,5 +1,6 @@
 const config = require('../../config/index')
 const { verifyPack } = require('../../api/index')
+const { getMaterialPacks } = require('../../api/material-pack')
 const { createInspection, uploadImage, recognizeInspection } = require('../../api/inspection')
 const { getState } = require('../../store/app-state')
 const ui = require('../../utils/ui')
@@ -10,6 +11,8 @@ Page({
     inspectionId: null,
     materialPackId: null,
     materialPackCode: '',
+    materialPackBoilerId: null,
+    materialPackBoilerName: '',
     previewImage: '',
     retestTask: null,
     waterItems: [
@@ -26,21 +29,66 @@ Page({
   onShow() {
     const state = getState()
     const retestTask = wx.getStorageSync('BG_RETEST_TASK') || null
-    this.setData({ currentBoiler: state.currentBoiler || null, retestTask })
+    const currentBoiler = state.currentBoiler || null
+    const targetBoilerId = (retestTask && retestTask.boilerId) || (currentBoiler && currentBoiler.id)
+    const packChangedBoiler = this.data.materialPackBoilerId && targetBoilerId && Number(this.data.materialPackBoilerId) !== Number(targetBoilerId)
+    this.setData({
+      currentBoiler,
+      retestTask,
+      ...(packChangedBoiler ? {
+        materialPackId: null,
+        materialPackCode: '',
+        materialPackBoilerId: null,
+        materialPackBoilerName: ''
+      } : {})
+    })
+    if (packChangedBoiler) ui.error('锅炉已变更，请重新校验材料包')
   },
 
   goChooseBoiler() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
 
   async setPackByCode(code, successText = '材料包校验成功') {
+    const state = getState()
+    const retestTask = this.data.retestTask
+    const targetBoiler = retestTask
+      ? { id: retestTask.boilerId, name: retestTask.boilerName }
+      : state.currentBoiler
+    if (!targetBoiler || !targetBoiler.id) throw new Error('请先选择锅炉')
     const packRes = await verifyPack(code)
-    this.setData({ materialPackCode: code, materialPackId: (packRes.pack && packRes.pack.id) || packRes.id })
+    let pack = packRes.pack || packRes
+    if (!config.useMock && !pack.boilerId) {
+      const packs = await getMaterialPacks({ enterpriseId: pack.enterpriseId || 1 })
+      const boundPack = (packs || []).find((item) => item.code === code)
+      if (boundPack) pack = { ...pack, ...boundPack }
+    }
+    if (pack.status !== 'activated') throw new Error('材料包尚未激活')
+    if (!pack.boilerId) throw new Error('材料包尚未绑定锅炉')
+    if (Number(pack.boilerId) !== Number(targetBoiler.id)) {
+      throw new Error(`材料包已绑定${pack.boilerName || '其他锅炉'}`)
+    }
+    this.setData({
+      materialPackCode: code,
+      materialPackId: pack.id,
+      materialPackBoilerId: pack.boilerId,
+      materialPackBoilerName: pack.boilerName || targetBoiler.name || ''
+    })
     ui.success(successText)
   },
 
   async useTestPack() {
     const testCode = 'PACK-001'
     if (config.useMock) {
-      this.setData({ materialPackCode: testCode, materialPackId: 9001 })
+      const state = getState()
+      const targetBoiler = this.data.retestTask
+        ? { id: this.data.retestTask.boilerId, name: this.data.retestTask.boilerName }
+        : state.currentBoiler
+      if (!targetBoiler || !targetBoiler.id) return ui.error('请先选择锅炉')
+      this.setData({
+        materialPackCode: testCode,
+        materialPackId: 9001,
+        materialPackBoilerId: targetBoiler.id,
+        materialPackBoilerName: targetBoiler.name || ''
+      })
       ui.success('已使用测试包')
       return
     }
@@ -99,9 +147,43 @@ Page({
     for (const item of this.data.waterItems) {
       const value = String(item.value || '').trim()
       if (!value) throw new Error(`请填写${item.name}`)
+      const numberValue = Number(value)
+      if (!Number.isFinite(numberValue) || numberValue < 0) throw new Error(`${item.name}读数格式不正确`)
+      if (item.code === 'ph' && numberValue > 14) throw new Error('pH读数应在0至14之间')
       values[item.code] = value
     }
     return values
+  },
+
+  confirmInspection(boilerName, waterValues) {
+    const lines = this.data.waterItems.map((item) => `${item.name}：${waterValues[item.code]}${item.unit ? ' ' + item.unit : ''}`)
+    return new Promise((resolve) => {
+      wx.showModal({
+        title: `确认提交｜${boilerName}`,
+        content: lines.join('\n'),
+        confirmText: '确认提交',
+        cancelText: '返回修改',
+        success: (res) => resolve(Boolean(res.confirm)),
+        fail: () => resolve(false)
+      })
+    })
+  },
+
+  cancelRetest() {
+    const state = getState()
+    const currentBoilerId = state.currentBoiler && state.currentBoiler.id
+    const clearPack = this.data.materialPackBoilerId && currentBoilerId && Number(this.data.materialPackBoilerId) !== Number(currentBoilerId)
+    wx.removeStorageSync('BG_RETEST_TASK')
+    this.setData({
+      retestTask: null,
+      ...(clearPack ? {
+        materialPackId: null,
+        materialPackCode: '',
+        materialPackBoilerId: null,
+        materialPackBoilerName: ''
+      } : {})
+    })
+    ui.success('已退出复测')
   },
 
   async startInspection() {
@@ -118,6 +200,9 @@ Page({
     } catch (e) {
       return ui.error(e.message)
     }
+    const boilerName = (retestTask && retestTask.boilerName) || (state.currentBoiler && state.currentBoiler.name) || `锅炉 #${boilerId}`
+    const confirmed = await this.confirmInspection(boilerName, waterValues)
+    if (!confirmed) return
 
     this.setData({ submitting: true })
     try {
