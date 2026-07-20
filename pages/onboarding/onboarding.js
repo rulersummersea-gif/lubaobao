@@ -76,8 +76,37 @@ Page({
     }
   },
 
-  async useLocalTestPack() {
-    await this.loadPack('PACK-001')
+  saveSessionAndEnter(res, successText = '绑定成功') {
+    setToken(res.token)
+    setState({
+      token: res.token,
+      user: res.user,
+      enterprise: res.enterprise,
+      currentBoiler: res.currentBoiler,
+      onboarding: res.onboarding
+    })
+    const app = getApp()
+    app.globalData.user = res.user
+    app.globalData.enterprise = res.enterprise
+    app.globalData.currentBoiler = res.currentBoiler
+    app.globalData.isLoggedIn = true
+    ui.success(successText)
+    setTimeout(() => wx.switchTab({ url: '/pages/index/index' }), 300)
+  },
+
+  async quickPass() {
+    if (this.data.submitting) return
+    this.setData({ submitting: true })
+    try {
+      ui.showLoading('测试绑定中')
+      const res = await completeOnboarding({ packCode: 'PACK-001', userName: '本地灰测用户' })
+      this.saveSessionAndEnter(res, '测试通过')
+    } catch (e) {
+      ui.error(e.message || '测试通过失败')
+    } finally {
+      ui.hideLoading()
+      this.setData({ submitting: false })
+    }
   },
 
   async loadPack(code) {
@@ -135,21 +164,7 @@ Page({
     try {
       ui.showLoading('正在绑定')
       const res = await completeOnboarding(payload)
-      setToken(res.token)
-      setState({
-        token: res.token,
-        user: res.user,
-        enterprise: res.enterprise,
-        currentBoiler: res.currentBoiler,
-        onboarding: res.onboarding
-      })
-      const app = getApp()
-      app.globalData.user = res.user
-      app.globalData.enterprise = res.enterprise
-      app.globalData.currentBoiler = res.currentBoiler
-      app.globalData.isLoggedIn = true
-      ui.success('绑定成功')
-      setTimeout(() => wx.switchTab({ url: '/pages/index/index' }), 300)
+      this.saveSessionAndEnter(res)
     } catch (e) {
       ui.error(e.message || '绑定失败')
     } finally {

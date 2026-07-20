@@ -7,7 +7,7 @@
   <view class="card">
     <view class="section-title">1. 扫描材料包</view>
     <view class="btn-primary" bindtap="scanPack">扫描二维码</view>
-    <view wx:if="{{isLocal}}" class="btn-secondary local-pack-btn" bindtap="useLocalTestPack">本地灰测使用 PACK-001</view>
+    <view wx:if="{{isLocal}}" class="btn-secondary local-pack-btn {{submitting ? 'button-disabled' : ''}}" bindtap="quickPass">{{submitting ? '正在通过' : '测试直接通过'}}</view>
     <view wx:if="{{pack}}" class="pack-result">
       <view class="row">
         <view class="pack-code">{{pack.code}}</view>
