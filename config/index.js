@@ -1,6 +1,12 @@
 // config/index.js
 // 运行环境配置：支持 mock / real 一键切换
 const ENV = {
+  local: {
+    name: 'local',
+    useMock: false,
+    baseURL: 'http://127.0.0.1:28080',
+    timeout: 15000
+  },
   dev: {
     name: 'dev',
     useMock: true,
@@ -21,7 +27,7 @@ const ENV = {
   }
 }
 
-const DEFAULT_ENV_KEY = 'staging'
+const DEFAULT_ENV_KEY = 'local'
 
 function getEnvKey() {
   try {

@@ -60,7 +60,8 @@ function http({ url, method = 'GET', data = {}, header = {} }) {
           }
           if (status < 200 || status >= 300) {
             const requestId = (res.header && (res.header['x-request-id'] || res.header['X-Request-Id'])) || ''
-            return reject(new Error(`HTTP ${status}${requestId ? ` (rid:${requestId})` : ''}`))
+            const apiMessage = res.data && (res.data.detail || res.data.message || res.data.msg)
+            return reject(new Error(apiMessage || `HTTP ${status}${requestId ? ` (rid:${requestId})` : ''}`))
           }
           const unwrapped = unwrapResponse(res.data)
           resolve(unwrapped)

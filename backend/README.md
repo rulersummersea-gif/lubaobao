@@ -131,3 +131,5 @@ GET  /inspections
 GET  /records/{id}
 GET  /reports/monthly
 ```
+
+正式微信登录需配置环境变量 `WX_APPID` 和 `WX_APPSECRET`。未配置时仅使用本地灰测账号；配置后后端通过微信登录凭证取得 `openid`，再映射为平台内部用户 ID。

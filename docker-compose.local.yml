@@ -14,6 +14,8 @@ services:
       MYSQL_PASSWORD: lubaobao_local_password
       MYSQL_DATABASE: lubaobao_local
       AUTH_SECRET: lubaobao-local-auth-secret
+      WX_APPID: ${WX_APPID:-}
+      WX_APPSECRET: ${WX_APPSECRET:-}
       LUBAOBAO_UPLOAD_DIR: /data/uploads
     volumes:
       - lubaobao-local-uploads:/data/uploads

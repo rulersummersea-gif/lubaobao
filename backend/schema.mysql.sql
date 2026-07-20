@@ -52,9 +52,26 @@ CREATE TABLE IF NOT EXISTS users (
   role VARCHAR(32) NOT NULL,
   enterprise_id BIGINT NOT NULL DEFAULT 1,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
+  wx_openid VARCHAR(128) NULL,
   created_at DATETIME NOT NULL,
   KEY idx_users_enterprise (enterprise_id),
   KEY idx_users_role (role)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS user_material_pack_bindings (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  enterprise_id BIGINT NOT NULL,
+  boiler_id BIGINT NOT NULL,
+  material_pack_id BIGINT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  expire_at VARCHAR(32) NULL,
+  bound_at DATETIME NOT NULL,
+  unbound_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_user_pack_bindings_user (user_id, status),
+  KEY idx_user_pack_bindings_pack (material_pack_id),
+  KEY idx_user_pack_bindings_boiler (boiler_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS water_test_items (
@@ -99,6 +116,9 @@ CREATE TABLE IF NOT EXISTS inspections (
   boiler_id BIGINT NOT NULL,
   material_pack_id BIGINT NOT NULL,
   inspection_type VARCHAR(32) NOT NULL DEFAULT 'daily',
+  retest_task_id BIGINT NULL,
+  inspector_user_id BIGINT NULL,
+  inspector_name VARCHAR(64) NULL,
   image_url VARCHAR(512) NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'created',
   score INT NULL,

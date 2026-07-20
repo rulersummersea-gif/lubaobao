@@ -7,4 +7,12 @@ function wxLogin(code) {
   return request({ url, method: 'POST', data: { code } })
 }
 
-module.exports = { wxLogin }
+function getOnboardingStatus() {
+  return request({ url: '/auth/onboarding-status' })
+}
+
+function completeOnboarding(data) {
+  return request({ url: '/auth/complete-onboarding', method: 'POST', data })
+}
+
+module.exports = { wxLogin, getOnboardingStatus, completeOnboarding }

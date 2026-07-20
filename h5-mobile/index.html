@@ -289,6 +289,13 @@
         data = await api('/auth/wx-login', options);
       }
       state.token = data.token;
+      if (data.onboarding && data.onboarding.required && isLocalH5()) {
+        data = await api('/auth/complete-onboarding', {
+          method: 'POST',
+          body: JSON.stringify({ packCode: 'PACK-001', userName: 'H5灰测用户' })
+        });
+        state.token = data.token;
+      }
       state.user = data.user;
       localStorage.setItem('H5_TOKEN', state.token);
       localStorage.setItem('H5_USER', JSON.stringify(state.user));

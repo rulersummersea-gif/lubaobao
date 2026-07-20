@@ -29,6 +29,29 @@
 }
 ```
 
+登录响应同时返回 `onboarding.required`。首次登录、材料包过期或失效时为 `true`，小程序必须进入扫码绑定页。
+
+### GET `/auth/onboarding-status`
+读取当前用户的材料包、企业和锅炉绑定状态。
+
+### POST `/auth/complete-onboarding`
+```json
+{
+  "packCode": "PACK-001",
+  "userName": "张三",
+  "enterpriseName": "示范企业",
+  "boiler": {
+    "deviceCode": "D-1001",
+    "productNo": "P-1001",
+    "model": "DZL6-1.25",
+    "deviceType": "蒸汽锅炉",
+    "ratedCapacity": "6t/h",
+    "ratedPressure": "1.25"
+  }
+}
+```
+材料包已有锅炉绑定，或用户因旧包过期进行换包时，可以省略企业和锅炉字段；首次使用未绑定材料包时必须填写。
+
 ## 2. 企业与锅炉
 ### GET `/enterprises`
 查询企业列表。

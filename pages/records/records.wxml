@@ -5,6 +5,7 @@
         <view>
           <view>{{item.boilerName}}</view>
           <view class="sub">{{item.time}}</view>
+          <view wx:if="{{item.inspectorName}}" class="sub">检测人员：{{item.inspectorName}}</view>
           <view class="sub">{{item.summary}}</view>
         </view>
         <view class="tag {{item.riskClass}}">{{item.riskLabel}}</view>

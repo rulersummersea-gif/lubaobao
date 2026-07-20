@@ -17,7 +17,7 @@ Page({
 
 
   switchEnv() {
-    const envs = ['dev','staging','prod']
+    const envs = ['local','dev','staging','prod']
     const current = config.getEnvKey ? config.getEnvKey() : 'dev'
     const idx = envs.indexOf(current)
     const next = envs[(idx + 1) % envs.length]

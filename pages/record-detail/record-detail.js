@@ -23,6 +23,7 @@ Page({
       id,
       boilerName: raw.boilerName || `巡检记录 #${id}`,
       time: raw.time || '',
+      inspectorName: raw.inspectorName || '',
       summary: raw.summary || '',
       ratedPressureMpa: raw.ratedPressureMpa || '',
       standardWarnings: raw.standardWarnings || [],

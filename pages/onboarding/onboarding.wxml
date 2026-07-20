@@ -1,0 +1,45 @@
+<view class="container">
+  <view class="card binding-head">
+    <view class="title">开始使用炉保保</view>
+    <view class="sub binding-reason">{{reasonText}}</view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">1. 扫描材料包</view>
+    <view class="btn-primary" bindtap="scanPack">扫描二维码</view>
+    <view wx:if="{{isLocal}}" class="btn-secondary local-pack-btn" bindtap="useLocalTestPack">本地灰测使用 PACK-001</view>
+    <view wx:if="{{pack}}" class="pack-result">
+      <view class="row">
+        <view class="pack-code">{{pack.code}}</view>
+        <view class="tag tag-normal">有效</view>
+      </view>
+      <view class="sub">有效期：{{pack.expireAt || '未设置'}}</view>
+      <view wx:if="{{pack.boilerName}}" class="sub">绑定锅炉：{{pack.boilerName}}</view>
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{pack}}">
+    <view class="section-title">2. 登记使用人</view>
+    <view class="field">
+      <view class="label">姓名</view>
+      <input class="input" value="{{userName}}" bindinput="onUserNameInput" placeholder="请输入实际使用人姓名" />
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{pack && needsRegistration}}">
+    <view class="section-title">3. 注册企业和锅炉</view>
+    <view class="field"><view class="label">企业名称 *</view><input class="input" value="{{form.enterpriseName}}" data-key="enterpriseName" bindinput="onFormInput" placeholder="请输入企业全称" /></view>
+    <view class="field"><view class="label">设备代码 *</view><input class="input" value="{{form.deviceCode}}" data-key="deviceCode" bindinput="onFormInput" placeholder="请按锅炉铭牌填写" /></view>
+    <view class="field"><view class="label">产品编号 *</view><input class="input" value="{{form.productNo}}" data-key="productNo" bindinput="onFormInput" placeholder="请输入出厂编号" /></view>
+    <view class="field"><view class="label">锅炉型号 *</view><input class="input" value="{{form.model}}" data-key="model" bindinput="onFormInput" placeholder="如 DZL6-1.25" /></view>
+    <view class="field"><view class="label">设备类型 *</view><input class="input" value="{{form.deviceType}}" data-key="deviceType" bindinput="onFormInput" /></view>
+    <view class="field"><view class="label">额定蒸发量</view><input class="input" value="{{form.ratedCapacity}}" data-key="ratedCapacity" bindinput="onFormInput" placeholder="如 6t/h" /></view>
+    <view class="field"><view class="label">额定压力 MPa</view><input class="input" type="digit" value="{{form.ratedPressure}}" data-key="ratedPressure" bindinput="onFormInput" placeholder="如 1.25" /></view>
+    <view class="field"><view class="label">燃料类型</view><input class="input" value="{{form.fuelType}}" data-key="fuelType" bindinput="onFormInput" placeholder="如天然气、生物质" /></view>
+    <view class="field"><view class="label">制造单位</view><input class="input" value="{{form.manufacturer}}" data-key="manufacturer" bindinput="onFormInput" placeholder="请输入制造厂家" /></view>
+  </view>
+
+  <view class="card" wx:if="{{pack}}">
+    <view class="btn-primary {{submitting ? 'button-disabled' : ''}}" bindtap="submit">{{submitting ? '正在绑定' : '确认绑定并进入系统'}}</view>
+  </view>
+</view>

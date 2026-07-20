@@ -2,6 +2,7 @@
   <view class="card">
     <view class="title">{{detail.boilerName}}</view>
     <view class="sub">{{detail.time}}</view>
+    <view wx:if="{{detail.inspectorName}}" class="sub">检测人员：{{detail.inspectorName}}</view>
     <view class="sub">{{detail.summary}}</view>
     <view wx:if="{{detail.ratedPressureMpa}}" class="sub">额定压力：{{detail.ratedPressureMpa}} MPa</view>
     <block wx:for="{{detail.standardWarnings}}" wx:key="*this">

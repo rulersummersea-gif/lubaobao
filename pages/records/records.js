@@ -26,6 +26,7 @@ Page({
       id: item.inspectionId || item.id,
       boilerName: item.boilerName || `锅炉 #${item.boilerId || '-'}`,
       time: item.time || item.createdAt || '',
+      inspectorName: item.inspectorName || '',
       summary: result.summary || item.summary || `状态：${item.status || '-'}`,
       riskLabel: warning ? '预警' : '正常',
       riskClass: warning ? 'tag-warn' : 'tag-normal'

@@ -5,6 +5,8 @@ import json
 import os
 import secrets
 import sqlite3
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -24,6 +26,8 @@ MYSQL_USER = os.getenv("MYSQL_USER", "lubaobao")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "lubaobao")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "lubaobao")
 AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret-change-me")
+WX_APPID = os.getenv("WX_APPID", "")
+WX_APPSECRET = os.getenv("WX_APPSECRET", "")
 PASSWORD_ITERATIONS = 200000
 
 app = FastAPI(title="Lubaobao API", version="0.5.0-complete-flow")
@@ -297,6 +301,8 @@ def seed_users(conn) -> None:
         ("admin", "Admin@123", "平台管理员", "platform_admin", 1),
         ("entadmin", "Ent@123", "企业管理员", "enterprise_admin", 1),
         ("inspector", "Inspect@123", "巡检员", "inspector", 1),
+        ("wx_user", "WxUser@Disabled", "微信用户", "inspector", 1),
+        ("h5_user", "H5User@Disabled", "H5灰测用户", "inspector", 1),
     ]
     insert_sql = (
         """
@@ -452,6 +458,48 @@ def ensure_column(conn, table: str, column: str, definition: str) -> None:
         pass
 
 
+def ensure_onboarding_schema(conn) -> None:
+    if DB_DRIVER == "mysql":
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_material_pack_bindings (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              user_id BIGINT NOT NULL,
+              enterprise_id BIGINT NOT NULL,
+              boiler_id BIGINT NOT NULL,
+              material_pack_id BIGINT NOT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'active',
+              expire_at VARCHAR(32) NULL,
+              bound_at DATETIME NOT NULL,
+              unbound_at DATETIME NULL,
+              created_at DATETIME NOT NULL,
+              KEY idx_user_pack_bindings_user (user_id, status),
+              KEY idx_user_pack_bindings_pack (material_pack_id),
+              KEY idx_user_pack_bindings_boiler (boiler_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+    else:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_material_pack_bindings (
+              id INTEGER PRIMARY KEY,
+              user_id INTEGER NOT NULL,
+              enterprise_id INTEGER NOT NULL,
+              boiler_id INTEGER NOT NULL,
+              material_pack_id INTEGER NOT NULL,
+              status TEXT NOT NULL DEFAULT 'active',
+              expire_at TEXT,
+              bound_at TEXT NOT NULL,
+              unbound_at TEXT,
+              created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_pack_bindings_user ON user_material_pack_bindings(user_id, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_pack_bindings_pack ON user_material_pack_bindings(material_pack_id)")
+
+
 def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "water_quality_limits", "updated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
@@ -466,6 +514,10 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "retest_tasks", "resolution_note", "VARCHAR(512) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "retest_tasks", "resolved_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "inspections", "retest_task_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "users", "wx_openid", "VARCHAR(128) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "inspections", "inspector_user_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "inspections", "inspector_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_onboarding_schema(conn)
 
 
 def seed_data(conn) -> None:
@@ -845,6 +897,24 @@ class WxLoginReq(BaseModel):
     code: str
 
 
+class OnboardingBoilerReq(BaseModel):
+    deviceCode: str
+    productNo: str
+    model: str
+    deviceType: str = "蒸汽锅炉"
+    ratedCapacity: Optional[str] = ""
+    ratedPressure: Optional[str] = ""
+    fuelType: Optional[str] = ""
+    manufacturer: Optional[str] = ""
+
+
+class OnboardingCompleteReq(BaseModel):
+    packCode: str
+    userName: str
+    enterpriseName: Optional[str] = ""
+    boiler: Optional[OnboardingBoilerReq] = None
+
+
 class AdminLoginReq(BaseModel):
     username: str
     password: str
@@ -1202,11 +1272,252 @@ def retest_task_to_dict(row) -> dict:
     }
 
 
+def pack_is_expired(expire_at) -> bool:
+    if not expire_at:
+        return False
+    try:
+        return datetime.strptime(str(expire_at)[:10], "%Y-%m-%d").date() < datetime.utcnow().date()
+    except ValueError:
+        return False
+
+
+def onboarding_status(conn, user_id: int) -> dict:
+    binding = row_to_dict(
+        conn.execute(
+            """
+            SELECT ub.id, ub.status AS binding_status, ub.enterprise_id, ub.boiler_id,
+                   ub.material_pack_id, ub.bound_at, ub.expire_at AS binding_expire_at,
+                   p.code AS pack_code, p.status AS pack_status, p.expire_at AS pack_expire_at,
+                   b.name AS boiler_name, e.name AS enterprise_name
+            FROM user_material_pack_bindings ub
+            LEFT JOIN material_packs p ON p.id = ub.material_pack_id
+            LEFT JOIN boilers b ON b.id = ub.boiler_id
+            LEFT JOIN enterprises e ON e.id = ub.enterprise_id
+            WHERE ub.user_id = ?
+            ORDER BY ub.id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    )
+    if not binding:
+        return {"required": True, "reason": "first_login", "message": "首次登录，请扫描材料包并完成企业和锅炉绑定"}
+
+    expired = pack_is_expired(binding.get("pack_expire_at") or binding.get("binding_expire_at"))
+    invalid_status = binding.get("pack_status") in ("expired", "invalid", "exhausted")
+    inactive = binding.get("binding_status") != "active"
+    required = expired or invalid_status or inactive
+    reason = "pack_expired" if expired or binding.get("pack_status") == "expired" else "pack_invalid" if invalid_status else "binding_inactive" if inactive else "active"
+    return {
+        "required": required,
+        "reason": reason,
+        "message": "材料包已过期，请扫描新的材料包" if reason == "pack_expired" else "材料包不可用，请扫描新的材料包" if required else "绑定有效",
+        "binding": {
+            "id": binding["id"],
+            "enterpriseId": binding["enterprise_id"],
+            "enterpriseName": binding.get("enterprise_name") or "",
+            "boilerId": binding["boiler_id"],
+            "boilerName": binding.get("boiler_name") or "",
+            "materialPackId": binding["material_pack_id"],
+            "packCode": binding.get("pack_code") or "",
+            "expireAt": binding.get("pack_expire_at") or binding.get("binding_expire_at"),
+            "status": binding.get("pack_status") or binding.get("binding_status"),
+        },
+    }
+
+
+def resolve_wx_openid(code: str) -> Optional[str]:
+    if not WX_APPID or not WX_APPSECRET:
+        return None
+    query = urllib.parse.urlencode(
+        {
+            "appid": WX_APPID,
+            "secret": WX_APPSECRET,
+            "js_code": code,
+            "grant_type": "authorization_code",
+        }
+    )
+    try:
+        with urllib.request.urlopen(f"https://api.weixin.qq.com/sns/jscode2session?{query}", timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="微信登录服务暂时不可用") from exc
+    if payload.get("errcode") or not payload.get("openid"):
+        raise HTTPException(status_code=401, detail=payload.get("errmsg") or "微信登录凭证无效")
+    return payload["openid"]
+
+
+def get_wx_user(conn, code: str):
+    openid = resolve_wx_openid(code)
+    if openid:
+        row = conn.execute(
+            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE wx_openid = ?",
+            (openid,),
+        ).fetchone()
+        if row:
+            return row
+        username = f"wx_{hashlib.sha256(openid.encode('utf-8')).hexdigest()[:20]}"
+        cur = conn.execute(
+            """
+            INSERT INTO users(username, password_hash, name, role, enterprise_id, status, wx_openid, created_at)
+            VALUES(?, ?, '微信用户', 'inspector', 1, 'active', ?, ?)
+            """,
+            (username, password_hash(secrets.token_urlsafe(24)), openid, now()),
+        )
+        return conn.execute(
+            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            (cur.lastrowid,),
+        ).fetchone()
+
+    fallback_username = "h5_user" if code == "h5-pilot" else "wx_user"
+    row = conn.execute(
+        "SELECT id, username, name, role, enterprise_id, status FROM users WHERE username = ?",
+        (fallback_username,),
+    ).fetchone()
+    if not row:
+        seed_users(conn)
+        row = conn.execute(
+            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE username = ?",
+            (fallback_username,),
+        ).fetchone()
+    return row
+
+
 @app.post("/auth/wx-login")
 def wx_login(req: WxLoginReq):
-    user = {"id": 1, "username": "wx_user", "name": "测试用户", "role": "inspector", "enterpriseId": 1}
-    enterprise = {"id": 1, "name": "华能示范工厂"}
-    return {"token": make_token(user), "user": user, "enterprise": enterprise}
+    with db() as conn:
+        user_row = get_wx_user(conn, req.code)
+        user = user_response(user_row)
+        enterprise_row = conn.execute(
+            "SELECT id, name, code, status FROM enterprises WHERE id = ?",
+            (user["enterpriseId"],),
+        ).fetchone()
+        status = onboarding_status(conn, user["id"])
+        enterprise = enterprise_response(enterprise_row) if enterprise_row else None
+    current_boiler = None
+    if status.get("binding"):
+        current_boiler = {
+            "id": status["binding"]["boilerId"],
+            "name": status["binding"]["boilerName"],
+            "enterpriseId": status["binding"]["enterpriseId"],
+        }
+    return {"token": make_token(user), "user": user, "enterprise": enterprise, "currentBoiler": current_boiler, "onboarding": status}
+
+
+@app.get("/auth/onboarding-status")
+def get_onboarding_status(authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(authorization)
+    with db() as conn:
+        return onboarding_status(conn, current_user["id"])
+
+
+@app.post("/auth/complete-onboarding")
+def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(authorization)
+    pack_code = req.packCode.strip()
+    user_name = req.userName.strip()
+    if not pack_code or not user_name:
+        raise HTTPException(status_code=400, detail="材料包编码和用户姓名不能为空")
+
+    with db() as conn:
+        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE code = ?", (pack_code,)).fetchone())
+        if not pack:
+            raise HTTPException(status_code=404, detail="材料包不存在")
+        if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
+            if pack_is_expired(pack.get("expire_at")):
+                conn.execute("UPDATE material_packs SET status = 'expired' WHERE id = ?", (pack["id"],))
+            raise HTTPException(status_code=400, detail="材料包已过期或不可用")
+
+        previous = row_to_dict(
+            conn.execute(
+                "SELECT * FROM user_material_pack_bindings WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+                (current_user["id"],),
+            ).fetchone()
+        )
+        boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (pack["boiler_id"],)).fetchone()) if pack.get("boiler_id") else None
+
+        if not boiler and previous:
+            boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (previous["boiler_id"],)).fetchone())
+
+        if boiler:
+            enterprise_id = boiler["enterprise_id"]
+        else:
+            enterprise_name = (req.enterpriseName or "").strip()
+            if not enterprise_name or not req.boiler:
+                raise HTTPException(status_code=400, detail="首次绑定请填写企业和锅炉信息")
+            boiler_data = req.boiler
+            required_boiler_values = [boiler_data.deviceCode, boiler_data.productNo, boiler_data.model, boiler_data.deviceType]
+            if not all(str(value or "").strip() for value in required_boiler_values):
+                raise HTTPException(status_code=400, detail="请填写完整锅炉基本信息")
+            enterprise_code = f"WX-{current_user['id']}-{int(datetime.utcnow().timestamp())}"
+            enterprise_cur = conn.execute(
+                "INSERT INTO enterprises(name, code, status, created_at) VALUES(?, ?, 'active', ?)",
+                (enterprise_name, enterprise_code, now()),
+            )
+            enterprise_id = enterprise_cur.lastrowid
+            boiler_cur = conn.execute(
+                """
+                INSERT INTO boilers(
+                  enterprise_id, name, device_code, product_no, model, device_type,
+                  rated_capacity, rated_pressure, fuel_type, manufacturer, created_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    enterprise_id,
+                    boiler_data.model.strip(),
+                    boiler_data.deviceCode.strip(),
+                    boiler_data.productNo.strip(),
+                    boiler_data.model.strip(),
+                    boiler_data.deviceType.strip(),
+                    (boiler_data.ratedCapacity or "").strip(),
+                    (boiler_data.ratedPressure or "").strip(),
+                    (boiler_data.fuelType or "").strip(),
+                    (boiler_data.manufacturer or "").strip(),
+                    now(),
+                ),
+            )
+            boiler = {"id": boiler_cur.lastrowid, "enterprise_id": enterprise_id, "name": boiler_data.model.strip()}
+
+        conn.execute(
+            "UPDATE material_packs SET enterprise_id = ?, boiler_id = ?, status = 'activated', activated_at = ? WHERE id = ?",
+            (enterprise_id, boiler["id"], now(), pack["id"]),
+        )
+        conn.execute(
+            "UPDATE user_material_pack_bindings SET status = 'inactive', unbound_at = ? WHERE user_id = ? AND status = 'active'",
+            (now(), current_user["id"]),
+        )
+        binding_cur = conn.execute(
+            """
+            INSERT INTO user_material_pack_bindings(
+              user_id, enterprise_id, boiler_id, material_pack_id, status, expire_at, bound_at, created_at
+            ) VALUES(?, ?, ?, ?, 'active', ?, ?, ?)
+            """,
+            (current_user["id"], enterprise_id, boiler["id"], pack["id"], pack.get("expire_at"), now(), now()),
+        )
+        binding_id = binding_cur.lastrowid
+        conn.execute(
+            "UPDATE users SET name = ?, enterprise_id = ? WHERE id = ?",
+            (user_name, enterprise_id, current_user["id"]),
+        )
+        user_row = conn.execute(
+            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            (current_user["id"],),
+        ).fetchone()
+        enterprise_row = conn.execute(
+            "SELECT id, name, code, status FROM enterprises WHERE id = ?",
+            (enterprise_id,),
+        ).fetchone()
+        user = user_response(user_row)
+        enterprise = enterprise_response(enterprise_row)
+
+    return {
+        "token": make_token(user),
+        "user": user,
+        "enterprise": enterprise,
+        "currentBoiler": {"id": boiler["id"], "name": boiler["name"], "enterpriseId": enterprise_id},
+        "binding": {"id": binding_id, "materialPackId": pack["id"], "packCode": pack_code, "expireAt": pack.get("expire_at"), "status": "active"},
+        "onboarding": {"required": False, "reason": "active", "message": "绑定成功"},
+    }
 
 
 @app.post("/auth/admin-login")
@@ -2214,8 +2525,15 @@ def save_inspection_test_results(conn, inspection_id: int, items: list[dict]) ->
 
 
 @app.post("/inspections")
-def create_inspection(req: InspectionCreateReq):
+def create_inspection(req: InspectionCreateReq, authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(authorization)
     with db() as conn:
+        user_onboarding = onboarding_status(conn, current_user["id"])
+        if user_onboarding["required"]:
+            raise HTTPException(status_code=403, detail=user_onboarding["message"])
+        active_binding = user_onboarding.get("binding") or {}
+        if int(active_binding.get("boilerId") or 0) != int(req.boilerId) or int(active_binding.get("materialPackId") or 0) != int(req.materialPackId):
+            raise HTTPException(status_code=403, detail="当前用户未绑定所选锅炉和材料包")
         boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (req.boilerId,)).fetchone())
         if not boiler:
             raise HTTPException(status_code=404, detail="锅炉不存在")
@@ -2238,17 +2556,28 @@ def create_inspection(req: InspectionCreateReq):
                 raise HTTPException(status_code=400, detail="复测任务与所选锅炉不一致")
         cur = conn.execute(
             """
-            INSERT INTO inspections(enterprise_id, boiler_id, material_pack_id, inspection_type, retest_task_id, status, created_at)
-            VALUES(?, ?, ?, ?, ?, 'created', ?)
+            INSERT INTO inspections(
+              enterprise_id, boiler_id, material_pack_id, inspection_type, retest_task_id,
+              inspector_user_id, inspector_name, status, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, 'created', ?)
             """,
-            (boiler["enterprise_id"], req.boilerId, req.materialPackId, req.inspectionType, req.retestTaskId, now()),
+            (
+                boiler["enterprise_id"],
+                req.boilerId,
+                req.materialPackId,
+                req.inspectionType,
+                req.retestTaskId,
+                current_user.get("id"),
+                current_user.get("name") or current_user.get("username"),
+                now(),
+            ),
         )
         return {"inspectionId": cur.lastrowid, "boilerId": req.boilerId, "materialPackId": req.materialPackId, "status": "created"}
 
 
 @app.post("/inspections/create")
-def create_inspection_alias(req: InspectionCreateReq):
-    return create_inspection(req)
+def create_inspection_alias(req: InspectionCreateReq, authorization: Optional[str] = Header(None)):
+    return create_inspection(req, authorization)
 
 
 @app.post("/inspections/{inspection_id}/upload")
@@ -2318,6 +2647,8 @@ def get_result(inspectionId: int):
     payload["imageUrl"] = row["image_url"]
     payload["remark"] = row["remark"]
     payload["submittedAt"] = row["submitted_at"]
+    payload["inspectorUserId"] = row["inspector_user_id"]
+    payload["inspectorName"] = row["inspector_name"]
     return payload
 
 
@@ -2428,7 +2759,8 @@ def list_inspections(status: Optional[str] = None, boilerId: Optional[int] = Non
             f"""
             SELECT i.id AS inspectionId, i.boiler_id AS boilerId, b.name AS boilerName,
                    i.material_pack_id AS materialPackId, i.status, i.score, i.summary,
-                   i.image_url AS imageUrl, i.result_json AS resultJson, i.created_at AS createdAt
+                   i.image_url AS imageUrl, i.result_json AS resultJson, i.created_at AS createdAt,
+                   i.inspector_user_id AS inspectorUserId, i.inspector_name AS inspectorName
             FROM inspections i
             LEFT JOIN boilers b ON b.id = i.boiler_id
             {where_clause}
