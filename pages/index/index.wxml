@@ -30,6 +30,12 @@
     </view>
   </view>
 
+  <view wx:if="{{packWarning}}" class="card pack-warning-card">
+    <view class="section-title">材料包需要更换</view>
+    <view class="sub">{{packWarning}}</view>
+    <view class="btn-primary pack-warning-btn" bindtap="goReplacePack">扫描新材料包</view>
+  </view>
+
   <view class="card">
     <view class="section-title">快捷操作</view>
     <view class="primary-action" bindtap="goInspect">

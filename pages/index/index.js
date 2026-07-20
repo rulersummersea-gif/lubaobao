@@ -7,7 +7,16 @@ const ui = require('../../utils/ui')
 const retest = require('../../utils/retest')
 
 Page({
-  data: { user: null, enterprise: null, currentBoiler: null, stats: [], alerts: [], latestSummary: '' },
+  data: {
+    user: null,
+    enterprise: null,
+    currentBoiler: null,
+    stats: [],
+    alerts: [],
+    latestSummary: '',
+    canInspect: true,
+    packWarning: ''
+  },
 
   async onShow() {
     const state = getState()
@@ -33,6 +42,8 @@ Page({
         user: state.user,
         enterprise: state.enterprise,
         currentBoiler: state.currentBoiler || null,
+        canInspect: !state.onboarding || state.onboarding.canInspect !== false,
+        packWarning: state.onboarding && state.onboarding.canInspect === false ? state.onboarding.message : '',
         stats: dashboard.stats || [],
         alerts: (localAlerts.length ? localAlerts : remoteAlerts).slice(0, 3),
         latestSummary: lastResult.summary || ''
@@ -43,7 +54,15 @@ Page({
       ui.hideLoading()
     }
   },
-  goInspect() { wx.switchTab({ url: '/pages/inspect/inspect' }) },
+  goInspect() {
+    if (!this.data.canInspect) return this.goReplacePack()
+    wx.switchTab({ url: '/pages/inspect/inspect' })
+  },
+  goReplacePack() {
+    const state = getState()
+    const reason = encodeURIComponent((state.onboarding && state.onboarding.reason) || 'pack_expired')
+    wx.navigateTo({ url: `/pages/onboarding/onboarding?reason=${reason}` })
+  },
   goActivate() { wx.navigateTo({ url: '/pages/activate/activate' }) },
   goBoilers() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
   goReport() { wx.navigateTo({ url: '/pages/report/report' }) },

@@ -29,7 +29,7 @@
 }
 ```
 
-登录响应同时返回 `onboarding.required`。首次登录、材料包过期或失效时为 `true`，小程序必须进入扫码绑定页。
+登录响应同时返回 `onboarding.required` 和 `onboarding.canInspect`。首次登录且从未绑定材料包时 `required=true`，必须进入扫码页；材料包过期时仍可进入首页，但 `canInspect=false`，更换材料包后才能巡检。
 
 ### GET `/auth/onboarding-status`
 读取当前用户的材料包、企业和锅炉绑定状态。

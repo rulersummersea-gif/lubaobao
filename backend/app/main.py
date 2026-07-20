@@ -1301,17 +1301,28 @@ def onboarding_status(conn, user_id: int) -> dict:
         ).fetchone()
     )
     if not binding:
-        return {"required": True, "reason": "first_login", "message": "首次登录，请扫描材料包并完成企业和锅炉绑定"}
+        return {
+            "required": True,
+            "canEnterHome": False,
+            "canInspect": False,
+            "replacementRequired": True,
+            "reason": "first_login",
+            "message": "首次登录，请扫描材料包并完成企业和锅炉绑定",
+        }
 
     expired = pack_is_expired(binding.get("pack_expire_at") or binding.get("binding_expire_at"))
     invalid_status = binding.get("pack_status") in ("expired", "invalid", "exhausted")
     inactive = binding.get("binding_status") != "active"
-    required = expired or invalid_status or inactive
+    required = inactive
+    can_inspect = not expired and not invalid_status and not inactive
     reason = "pack_expired" if expired or binding.get("pack_status") == "expired" else "pack_invalid" if invalid_status else "binding_inactive" if inactive else "active"
     return {
         "required": required,
+        "canEnterHome": not required,
+        "canInspect": can_inspect,
+        "replacementRequired": not can_inspect,
         "reason": reason,
-        "message": "材料包已过期，请扫描新的材料包" if reason == "pack_expired" else "材料包不可用，请扫描新的材料包" if required else "绑定有效",
+        "message": "材料包已过期，请更换材料包后再巡检" if reason == "pack_expired" else "材料包不可用，请更换材料包后再巡检" if invalid_status else "材料包绑定已解除，请重新扫描材料包" if inactive else "绑定有效",
         "binding": {
             "id": binding["id"],
             "enterpriseId": binding["enterprise_id"],
@@ -1516,7 +1527,7 @@ def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str]
         "enterprise": enterprise,
         "currentBoiler": {"id": boiler["id"], "name": boiler["name"], "enterpriseId": enterprise_id},
         "binding": {"id": binding_id, "materialPackId": pack["id"], "packCode": pack_code, "expireAt": pack.get("expire_at"), "status": "active"},
-        "onboarding": {"required": False, "reason": "active", "message": "绑定成功"},
+        "onboarding": {"required": False, "canEnterHome": True, "canInspect": True, "replacementRequired": False, "reason": "active", "message": "绑定成功"},
     }
 
 
@@ -2530,6 +2541,8 @@ def create_inspection(req: InspectionCreateReq, authorization: Optional[str] = H
     with db() as conn:
         user_onboarding = onboarding_status(conn, current_user["id"])
         if user_onboarding["required"]:
+            raise HTTPException(status_code=403, detail=user_onboarding["message"])
+        if not user_onboarding.get("canInspect", False):
             raise HTTPException(status_code=403, detail=user_onboarding["message"])
         active_binding = user_onboarding.get("binding") or {}
         if int(active_binding.get("boilerId") or 0) != int(req.boilerId) or int(active_binding.get("materialPackId") or 0) != int(req.materialPackId):

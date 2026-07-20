@@ -1,5 +1,12 @@
 @import '../../app.wxss';
 
+.pack-warning-card {
+  border: 2rpx solid #f59e0b;
+  background: #fffbeb;
+}
+
+.pack-warning-btn { margin-top: 20rpx; }
+
 .hero {
   overflow: hidden;
   padding-bottom: 24rpx;

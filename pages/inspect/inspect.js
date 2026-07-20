@@ -28,6 +28,12 @@ Page({
 
   onShow() {
     const state = getState()
+    if (state.onboarding && state.onboarding.canInspect === false) {
+      ui.error(state.onboarding.message || '请先更换材料包')
+      const reason = encodeURIComponent(state.onboarding.reason || 'pack_expired')
+      wx.navigateTo({ url: `/pages/onboarding/onboarding?reason=${reason}` })
+      return
+    }
     const retestTask = wx.getStorageSync('BG_RETEST_TASK') || null
     const currentBoiler = state.currentBoiler || null
     const targetBoilerId = (retestTask && retestTask.boilerId) || (currentBoiler && currentBoiler.id)
