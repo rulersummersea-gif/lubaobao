@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS material_packs (
   activated_at DATETIME NULL,
   KEY idx_packs_enterprise (enterprise_id),
   KEY idx_packs_boiler (boiler_id),
+  KEY idx_packs_customer_period (customer_period_id),
   UNIQUE KEY uq_material_packs_qr_token (qr_token)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -80,10 +81,51 @@ CREATE TABLE IF NOT EXISTS customer_account_periods (
   start_date VARCHAR(32) NOT NULL,
   end_date VARCHAR(32) NOT NULL,
   pack_count INT NOT NULL,
+  order_id BIGINT NULL,
+  period_no INT NOT NULL DEFAULT 1,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending_fulfillment',
+  allocated_at DATETIME NULL,
   created_by BIGINT NULL,
   created_by_name VARCHAR(64) NULL,
   created_at DATETIME NOT NULL,
-  KEY idx_customer_periods_customer (customer_id, id)
+  KEY idx_customer_periods_customer (customer_id, id),
+  KEY idx_customer_periods_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS subscription_orders (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  order_no VARCHAR(64) NOT NULL UNIQUE,
+  customer_id BIGINT NOT NULL,
+  account_type VARCHAR(20) NOT NULL,
+  term_quarters INT NOT NULL DEFAULT 1,
+  planned_start_date VARCHAR(32) NOT NULL,
+  service_end_date VARCHAR(32) NOT NULL,
+  amount_due DECIMAL(12,2) NOT NULL DEFAULT 0,
+  amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
+  status VARCHAR(20) NOT NULL DEFAULT 'pending_payment',
+  contract_no VARCHAR(64) NULL,
+  sales_owner VARCHAR(64) NULL,
+  created_by BIGINT NULL,
+  created_by_name VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL,
+  paid_at DATETIME NULL,
+  KEY idx_subscription_orders_customer (customer_id, id),
+  KEY idx_subscription_orders_status (status, payment_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_records (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  order_id BIGINT NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  paid_at DATETIME NOT NULL,
+  payment_method VARCHAR(32) NULL,
+  transaction_no VARCHAR(128) NULL,
+  note VARCHAR(512) NULL,
+  confirmed_by BIGINT NULL,
+  confirmed_by_name VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_payment_records_order (order_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS users (

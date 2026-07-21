@@ -118,18 +118,22 @@
 ```
 
 ## 3. 客户账户
-客户账户与企业一一对应。试用账户每个周期 1 个月并自动分配 1 个材料包；订阅账户每个周期 3 个月并自动分配 3 个材料包，同一周期内所有材料包使用相同到期日。
+客户账户与企业一一对应。业务流程为：创建待付款订单、登记收款、生成服务周期、执行季度发包。试用账户为 1 个月、1 个材料包；订阅订单按季度拆分，每季度 3 个材料包，同一季度材料包使用相同到期日。
 
 ### GET `/customers`
 查询客户账户、当前服务周期和已分配材料包数量，需要后台管理权限。
 
 ### POST `/customers`
-开通客户账户并自动创建首个服务周期和材料包，需要 `platform_admin`。
+建立客户账户并创建待付款订阅订单，需要 `platform_admin`。此时不会生成服务周期或材料包。
 ```json
 {
   "enterpriseId": 1,
   "accountType": "subscription",
   "startDate": "2026-07-21",
+  "termQuarters": 4,
+  "amountDue": 12000,
+  "contractNo": "HT-2026-001",
+  "salesOwner": "销售A",
   "contactName": "张经理",
   "contactPhone": "13800000000",
   "notes": "季度订阅"
@@ -138,13 +142,33 @@
 `accountType` 支持 `trial` 和 `subscription`。
 
 ### POST `/customers/{id}/renew`
-续期或从试用转为订阅。未传 `startDate` 时，新周期自动接在当前周期之后。
+创建续费待付款订单，或创建试用转订阅订单。未传 `startDate` 时，新订单接在当前服务期限之后。
 ```json
-{ "accountType": "subscription" }
+{ "accountType": "subscription", "termQuarters": 1, "amountDue": 3000 }
 ```
 
+### GET `/subscription-orders`
+查询订阅订单、应收、实收和付款状态。
+
+### POST `/subscription-orders/{id}/confirm-payment`
+登记一次收款，支持分次收款。累计实收达到应收金额后，订单转为已付款并自动拆分服务周期；此时仍不创建材料包。
+```json
+{
+  "amount": 3000,
+  "paidAt": "2026-07-21 10:00:00",
+  "paymentMethod": "bank_transfer",
+  "transactionNo": "BANK-20260721-001"
+}
+```
+
+### GET `/subscription-orders/{id}/payments`
+查询订单的全部收款记录。
+
 ### GET `/customers/{id}/periods`
-查询该客户历次服务周期及每周期材料包数量。
+查询该客户历次服务周期、季度发包状态及材料包数量。
+
+### POST `/customer-periods/{id}/allocate-packs`
+对已付款订单生成的季度发包任务执行材料包分配。试用周期生成 1 包，订阅季度生成 3 包，材料包统一使用该周期结束日期；未来周期材料包在周期开始前不能扫码使用。
 
 ### PATCH `/customers/{id}/status`
 启用或停用客户账户。停用后，该客户周期内的材料包不能扫码、激活或巡检。

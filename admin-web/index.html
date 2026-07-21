@@ -107,15 +107,21 @@
 
     <section id="customers" class="tab">
       <div class="card">
-        <h2>开通客户账户</h2>
+        <h2 id="customerFormTitle">新建客户订阅订单</h2>
         <div class="row pack-form">
+          <input id="customerId" type="hidden">
           <div class="field wide"><label for="customerEnterprise">客户企业</label><select id="customerEnterprise"></select></div>
           <div class="field"><label for="customerAccountType">账户档位</label><select id="customerAccountType"><option value="trial">试用账户 · 1包/1个月</option><option value="subscription">订阅账户 · 3包/3个月</option></select></div>
-          <div class="field"><label for="customerStartDate">生效日期</label><input id="customerStartDate" type="date"></div>
+          <div class="field"><label for="customerTermQuarters">订阅季度数</label><input id="customerTermQuarters" type="number" min="1" max="8" value="1"></div>
+          <div class="field"><label for="customerStartDate">计划生效日期</label><input id="customerStartDate" type="date"></div>
+          <div class="field"><label for="customerAmountDue">应收金额</label><input id="customerAmountDue" type="number" min="0" step="0.01" value="0"></div>
+          <div class="field"><label for="customerContractNo">合同编号</label><input id="customerContractNo" placeholder="可选"></div>
+          <div class="field"><label for="customerSalesOwner">销售负责人</label><input id="customerSalesOwner" placeholder="销售姓名"></div>
           <div class="field"><label for="customerContact">联系人</label><input id="customerContact" placeholder="客户联系人"></div>
           <div class="field"><label for="customerPhone">联系电话</label><input id="customerPhone" placeholder="手机号或座机"></div>
           <div class="field wide"><label for="customerNotes">客户备注</label><input id="customerNotes" placeholder="销售单、服务约定等"></div>
-          <button id="createCustomerBtn">开通并分配材料包</button>
+          <button id="createCustomerBtn">创建待付款订单</button>
+          <button class="secondary" id="resetCustomerFormBtn">取消续费</button>
         </div>
       </div>
       <div class="card">
@@ -125,10 +131,32 @@
           <input id="customerSearch" placeholder="搜索企业/联系人/电话">
           <button class="secondary" id="loadCustomersBtn">刷新客户</button>
         </div>
-        <table><thead><tr><th>客户企业</th><th>账户档位</th><th>当前周期</th><th>材料包</th><th>联系人</th><th>状态</th><th>操作</th></tr></thead><tbody id="customersBody"></tbody></table>
+        <table><thead><tr><th>客户企业</th><th>当前档位</th><th>服务期限</th><th>订单/周期</th><th>联系人</th><th>状态</th><th>操作</th></tr></thead><tbody id="customersBody"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">订阅订单与收款</h2>
+          <select id="orderStatusFilter"><option value="">全部订单</option><option value="pending_payment">待付款</option><option value="paid">已付款</option></select>
+          <button class="secondary" id="loadOrdersBtn">刷新订单</button>
+        </div>
+        <table><thead><tr><th>订单</th><th>客户</th><th>订阅方案</th><th>服务期限</th><th>收款</th><th>状态</th><th>操作</th></tr></thead><tbody id="ordersBody"></tbody></table>
+        <div id="paymentPanel" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0">
+          <h2 id="paymentTitle">确认收款</h2>
+          <div id="paymentFormFields" class="row pack-form">
+            <input id="paymentOrderId" type="hidden">
+            <div class="field"><label for="paymentAmount">本次收款金额</label><input id="paymentAmount" type="number" min="0" step="0.01"></div>
+            <div class="field"><label for="paymentPaidAt">收款时间</label><input id="paymentPaidAt" type="datetime-local"></div>
+            <div class="field"><label for="paymentMethod">支付方式</label><select id="paymentMethod"><option value="bank_transfer">银行转账</option><option value="wechat">微信</option><option value="alipay">支付宝</option><option value="cash">现金</option><option value="other">其他</option></select></div>
+            <div class="field wide"><label for="paymentTransactionNo">交易流水号</label><input id="paymentTransactionNo" placeholder="付款凭证或流水号"></div>
+            <div class="field wide"><label for="paymentNote">收款备注</label><input id="paymentNote" placeholder="可选"></div>
+            <button id="confirmPaymentBtn">确认收款</button>
+            <button class="secondary" id="closePaymentBtn">取消</button>
+          </div>
+          <table><thead><tr><th>收款时间</th><th>金额</th><th>方式</th><th>流水号</th><th>确认人</th></tr></thead><tbody id="paymentHistoryBody"></tbody></table>
+        </div>
         <div id="customerPeriods" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0">
           <div class="row"><h2 id="customerPeriodsTitle" style="margin-right:auto">服务周期记录</h2><button class="secondary" id="closeCustomerPeriodsBtn">关闭</button></div>
-          <table><thead><tr><th>周期</th><th>档位</th><th>有效期</th><th>材料包</th><th>操作人</th><th>创建时间</th></tr></thead><tbody id="customerPeriodsBody"></tbody></table>
+          <table><thead><tr><th>订单/周期</th><th>档位</th><th>有效期</th><th>材料包</th><th>发包状态</th><th>操作</th></tr></thead><tbody id="customerPeriodsBody"></tbody></table>
         </div>
       </div>
     </section>
@@ -369,6 +397,7 @@ const state = {
   packs: [],
   packQr: null,
   customers: [],
+  orders: [],
 };
 
 function base() { return $('base').value.trim() || '/api'; }
@@ -454,10 +483,17 @@ function syncEnterpriseSelects() {
   });
 }
 function customerTypeText(type) { return type === 'subscription' ? '订阅账户' : '试用账户'; }
-function customerStatusText(status) { return ({ active: '服务中', expired: '已到期', disabled: '已停用' })[status] || status || '-'; }
+function customerStatusText(status) { return ({ active: '服务中', pending_payment: '待付款', expired: '已到期', disabled: '已停用' })[status] || status || '-'; }
+function orderStatusText(status) { return ({ pending_payment: '待付款', paid: '已付款', cancelled: '已取消', refunded: '已退款' })[status] || status || '-'; }
+function paymentStatusText(status) { return ({ unpaid: '未付款', partial: '部分付款', paid: '已付清' })[status] || status || '-'; }
+function periodStatusText(status) { return status === 'allocated' ? '已分配' : '待发包'; }
 async function loadCustomers() {
   state.customers = await api('/customers');
   renderCustomers();
+}
+async function loadOrders() {
+  state.orders = await api('/subscription-orders');
+  renderOrders();
 }
 function renderCustomers() {
   const type = $('customerTypeFilter').value;
@@ -470,40 +506,89 @@ function renderCustomers() {
     <tr>
       <td><b>${esc(item.enterpriseName)}</b><div class="muted">企业 ID ${item.enterpriseId}</div></td>
       <td>${tag(customerTypeText(item.accountType))}<div class="muted">${item.accountType === 'trial' ? '1包 / 1个月' : '3包 / 1季度'}</div></td>
-      <td class="nowrap">${item.startDate} 至 ${item.endDate}<div class="muted">累计 ${item.periodCount} 个周期</div></td>
-      <td>${item.allocatedPackCount} / ${item.packQuota} 包<div class="muted">当前周期统一到期</div></td>
+      <td class="nowrap">${item.startDate} 至 ${item.endDate}</td>
+      <td>待付款 ${item.pendingOrderCount || 0} 单<div class="muted">已生成 ${item.periodCount} 个服务周期</div></td>
       <td>${esc(item.contactName || '-')}<div class="muted">${esc(item.contactPhone || '-')}</div></td>
       <td>${tag(customerStatusText(item.effectiveStatus))}</td>
       <td>
         <button class="secondary" onclick="showCustomerPeriods(${item.id})">周期记录</button>
-        ${item.accountType === 'trial' ? `<button onclick="renewCustomer(${item.id}, 'subscription')">转订阅</button>` : `<button onclick="renewCustomer(${item.id}, 'subscription')">续一季度</button>`}
+        ${item.status !== 'pending_payment' ? `<button onclick="prepareRenewCustomer(${item.id})">新建续费订单</button>` : ''}
         ${item.status === 'disabled' ? `<button class="secondary" onclick="setCustomerStatus(${item.id}, 'active')">启用</button>` : `<button class="warn" onclick="setCustomerStatus(${item.id}, 'disabled')">停用</button>`}
       </td>
     </tr>`).join('');
   if (!customers.length) $('customersBody').innerHTML = '<tr><td colspan="7" class="empty">暂无符合条件的客户账户</td></tr>';
 }
-async function createCustomer() {
-  const payload = {
-    enterpriseId: Number($('customerEnterprise').value),
+function renderOrders() {
+  const status = $('orderStatusFilter').value;
+  const orders = state.orders.filter((item) => !status || item.status === status);
+  $('ordersBody').innerHTML = orders.map((item) => `
+    <tr>
+      <td><b>${esc(item.orderNo)}</b><div class="muted">${esc(item.contractNo || '无合同编号')}</div></td>
+      <td>${esc(item.enterpriseName)}</td>
+      <td>${customerTypeText(item.accountType)}<div class="muted">${item.accountType === 'trial' ? '1个月' : item.termQuarters + '个季度'}</div></td>
+      <td class="nowrap">${item.plannedStartDate} 至 ${item.serviceEndDate}</td>
+      <td>￥${Number(item.amountPaid).toFixed(2)} / ￥${Number(item.amountDue).toFixed(2)}<div class="muted">${paymentStatusText(item.paymentStatus)}</div></td>
+      <td>${tag(orderStatusText(item.status))}<div class="muted">${esc(item.salesOwner || '-')}</div></td>
+      <td>
+        <button onclick="openPaymentPanel(${item.id}).catch(showDebug)">${item.paymentStatus === 'paid' ? '收款记录' : '确认收款'}</button>
+        ${item.periodCount ? `<button class="secondary" onclick="showCustomerPeriods(${item.customerId})">发包任务</button>` : ''}
+      </td>
+    </tr>`).join('');
+  if (!orders.length) $('ordersBody').innerHTML = '<tr><td colspan="7" class="empty">暂无符合条件的订阅订单</td></tr>';
+}
+function customerOrderPayload() {
+  return {
     accountType: $('customerAccountType').value,
     startDate: $('customerStartDate').value || null,
+    termQuarters: Number($('customerTermQuarters').value || 1),
+    amountDue: Number($('customerAmountDue').value || 0),
+    contractNo: $('customerContractNo').value.trim() || null,
+    salesOwner: $('customerSalesOwner').value.trim() || null,
+  };
+}
+async function createCustomer() {
+  const customerId = Number($('customerId').value || 0);
+  const payload = {
+    ...customerOrderPayload(),
+    enterpriseId: Number($('customerEnterprise').value),
     contactName: $('customerContact').value.trim() || null,
     contactPhone: $('customerPhone').value.trim() || null,
     notes: $('customerNotes').value.trim() || null,
   };
-  const result = await api('/customers', { method: 'POST', body: JSON.stringify(payload) });
-  $('packEnterpriseFilter').value = String(payload.enterpriseId);
-  await Promise.all([loadCustomers(), loadPacks(), loadDashboard()]);
-  alert(`${customerTypeText(payload.accountType)}已开通，自动分配 ${result.period.packCount} 个材料包，有效期至 ${result.period.endDate}`);
+  const result = customerId
+    ? await api(`/customers/${customerId}/renew`, { method: 'POST', body: JSON.stringify(customerOrderPayload()) })
+    : await api('/customers', { method: 'POST', body: JSON.stringify(payload) });
+  resetCustomerForm();
+  await Promise.all([loadCustomers(), loadOrders()]);
+  alert(`订阅订单 ${result.order.orderNo} 已创建，确认收款后才会生成发包任务。`);
 }
-async function renewCustomer(id, accountType) {
+function prepareRenewCustomer(id) {
   const customer = state.customers.find((item) => item.id === id);
   if (!customer) return;
-  const action = accountType === 'subscription' && customer.accountType === 'trial' ? '转为订阅账户并分配3个季度包' : '续订一个季度并分配3个材料包';
-  if (!confirm(`确认将 ${customer.enterpriseName} ${action}？`)) return;
-  const result = await api(`/customers/${id}/renew`, { method: 'POST', body: JSON.stringify({ accountType }) });
-  await Promise.all([loadCustomers(), loadPacks(), loadDashboard()]);
-  alert(`办理成功，新周期至 ${result.period.endDate}`);
+  $('customerId').value = customer.id;
+  $('customerEnterprise').value = String(customer.enterpriseId);
+  $('customerEnterprise').disabled = true;
+  $('customerAccountType').value = 'subscription';
+  $('customerTermQuarters').value = '1';
+  $('customerStartDate').value = '';
+  $('customerContact').value = customer.contactName || '';
+  $('customerPhone').value = customer.contactPhone || '';
+  $('customerFormTitle').textContent = `为 ${customer.enterpriseName} 新建续费订单`;
+  $('createCustomerBtn').textContent = '创建续费待付款订单';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function resetCustomerForm() {
+  $('customerId').value = '';
+  $('customerEnterprise').disabled = false;
+  $('customerFormTitle').textContent = '新建客户订阅订单';
+  $('createCustomerBtn').textContent = '创建待付款订单';
+  $('customerTermQuarters').value = '1';
+  $('customerAmountDue').value = '0';
+  $('customerContractNo').value = '';
+  $('customerSalesOwner').value = '';
+  $('customerContact').value = '';
+  $('customerPhone').value = '';
+  $('customerNotes').value = '';
 }
 async function setCustomerStatus(id, status) {
   const customer = state.customers.find((item) => item.id === id);
@@ -516,8 +601,44 @@ async function showCustomerPeriods(id) {
   const customer = state.customers.find((item) => item.id === id);
   const periods = await api(`/customers/${id}/periods`);
   $('customerPeriodsTitle').textContent = `${customer?.enterpriseName || '客户'} · 服务周期记录`;
-  $('customerPeriodsBody').innerHTML = periods.map((period) => `<tr><td>${period.id}</td><td>${customerTypeText(period.accountType)}</td><td>${period.startDate} 至 ${period.endDate}</td><td>${period.allocatedPackCount} / ${period.packCount} 包</td><td>${esc(period.createdByName || '-')}</td><td>${period.createdAt || '-'}</td></tr>`).join('');
+  $('customerPeriodsBody').innerHTML = periods.map((period) => `<tr><td>${esc(period.orderNo || '-')}<div class="muted">第 ${period.periodNo} 期</div></td><td>${customerTypeText(period.accountType)}</td><td>${period.startDate} 至 ${period.endDate}</td><td>${period.allocatedPackCount} / ${period.packCount} 包</td><td>${tag(periodStatusText(period.status))}<div class="muted">${period.allocatedAt || '-'}</div></td><td>${period.status === 'pending_fulfillment' ? `<button onclick="allocatePeriodPacks(${period.id}, ${id})">分配材料包</button>` : '已完成'}</td></tr>`).join('');
+  if (!periods.length) $('customerPeriodsBody').innerHTML = '<tr><td colspan="6" class="empty">付款确认后才会生成服务周期和发包任务</td></tr>';
   $('customerPeriods').style.display = 'block';
+}
+async function allocatePeriodPacks(periodId, customerId) {
+  if (!confirm('确认按该服务周期分配材料包并生成二维码？')) return;
+  const result = await api(`/customer-periods/${periodId}/allocate-packs`, { method: 'POST' });
+  await Promise.all([showCustomerPeriods(customerId), loadCustomers(), loadPacks(), loadDashboard()]);
+  alert(`已分配 ${result.count} 个材料包。`);
+}
+async function openPaymentPanel(orderId) {
+  const order = state.orders.find((item) => item.id === orderId);
+  if (!order) return;
+  const payments = await api(`/subscription-orders/${orderId}/payments`);
+  $('paymentOrderId').value = order.id;
+  $('paymentTitle').textContent = `${order.paymentStatus === 'paid' ? '收款记录' : '确认收款'}：${order.orderNo}`;
+  $('paymentFormFields').style.display = order.paymentStatus === 'paid' ? 'none' : 'flex';
+  $('paymentAmount').value = Math.max(0, Number(order.amountDue) - Number(order.amountPaid)).toFixed(2);
+  $('paymentPaidAt').value = '';
+  $('paymentTransactionNo').value = '';
+  $('paymentNote').value = '';
+  $('paymentHistoryBody').innerHTML = payments.map((payment) => `<tr><td>${payment.paidAt || '-'}</td><td>￥${Number(payment.amount).toFixed(2)}</td><td>${esc(payment.paymentMethod || '-')}</td><td>${esc(payment.transactionNo || '-')}</td><td>${esc(payment.confirmedByName || '-')}</td></tr>`).join('');
+  if (!payments.length) $('paymentHistoryBody').innerHTML = '<tr><td colspan="5" class="empty">暂无收款记录</td></tr>';
+  $('paymentPanel').style.display = 'block';
+}
+async function confirmPayment() {
+  const orderId = Number($('paymentOrderId').value);
+  const payload = {
+    amount: Number($('paymentAmount').value || 0),
+    paidAt: $('paymentPaidAt').value ? $('paymentPaidAt').value.replace('T', ' ') + ':00' : null,
+    paymentMethod: $('paymentMethod').value,
+    transactionNo: $('paymentTransactionNo').value.trim() || null,
+    note: $('paymentNote').value.trim() || null,
+  };
+  const result = await api(`/subscription-orders/${orderId}/confirm-payment`, { method: 'POST', body: JSON.stringify(payload) });
+  $('paymentPanel').style.display = 'none';
+  await Promise.all([loadCustomers(), loadOrders()]);
+  alert(result.fullyPaid ? `收款完成，已生成 ${result.periods.length} 个季度发包任务。` : '已记录部分收款，付清后自动生成发包任务。');
 }
 function resetEnterpriseForm() {
   $('enterpriseId').value = '';
@@ -980,7 +1101,7 @@ async function loadReport() {
 async function refreshAll() {
   await loadDashboard();
   await loadEnterprises();
-  await Promise.all([loadCustomers(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
+  await Promise.all([loadCustomers(), loadOrders(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
 }
 
 document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
@@ -990,9 +1111,19 @@ $('saveEnterpriseBtn').onclick = () => saveEnterprise().catch(showDebug);
 $('resetEnterpriseFormBtn').onclick = () => resetEnterpriseForm();
 $('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
 $('createCustomerBtn').onclick = () => createCustomer().catch(showDebug);
+$('resetCustomerFormBtn').onclick = () => resetCustomerForm();
 $('loadCustomersBtn').onclick = () => loadCustomers().catch(showDebug);
+$('loadOrdersBtn').onclick = () => loadOrders().catch(showDebug);
 $('customerTypeFilter').onchange = () => renderCustomers();
 $('customerSearch').oninput = () => renderCustomers();
+$('orderStatusFilter').onchange = () => renderOrders();
+$('customerAccountType').onchange = () => {
+  const trial = $('customerAccountType').value === 'trial';
+  $('customerTermQuarters').disabled = trial;
+  if (trial) $('customerTermQuarters').value = '1';
+};
+$('confirmPaymentBtn').onclick = () => confirmPayment().catch(showDebug);
+$('closePaymentBtn').onclick = () => $('paymentPanel').style.display = 'none';
 $('closeCustomerPeriodsBtn').onclick = () => $('customerPeriods').style.display = 'none';
 $('createPackBtn').onclick = () => createPack().catch(showDebug);
 $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
@@ -1020,7 +1151,9 @@ resetEnterpriseForm();
 resetBoilerForm();
 resetStandardForm();
 resetUserForm();
+resetCustomerForm();
 $('customerStartDate').value = new Date().toISOString().slice(0, 10);
+$('customerAccountType').onchange();
 refreshAll().catch(showDebug);
 </script>
 </body>

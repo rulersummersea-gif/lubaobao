@@ -121,7 +121,11 @@ GET  /boilers
 GET  /customers
 POST /customers
 POST /customers/{id}/renew
+GET  /subscription-orders
+POST /subscription-orders/{id}/confirm-payment
+GET  /subscription-orders/{id}/payments
 GET  /customers/{id}/periods
+POST /customer-periods/{id}/allocate-packs
 PATCH /customers/{id}/status
 GET  /material-packs
 POST /material-packs

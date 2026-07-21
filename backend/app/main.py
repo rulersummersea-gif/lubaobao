@@ -34,7 +34,7 @@ WX_APPSECRET = os.getenv("WX_APPSECRET", "")
 PACK_QR_BASE_URL = os.getenv("PACK_QR_BASE_URL", "https://mp.lubaobao.cn/bind")
 PASSWORD_ITERATIONS = 200000
 
-app = FastAPI(title="Lubaobao API", version="0.7.0-customer-accounts")
+app = FastAPI(title="Lubaobao API", version="0.8.0-subscription-billing")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -480,6 +480,26 @@ def ensure_pack_qr_index(conn) -> None:
         pass
 
 
+def ensure_subscription_indexes(conn) -> None:
+    try:
+        if DB_DRIVER == "mysql":
+            for table, index_name, column in (
+                ("material_packs", "idx_packs_customer_period", "customer_period_id"),
+                ("customer_account_periods", "idx_customer_periods_order", "order_id"),
+            ):
+                exists = conn.execute(
+                    "SELECT COUNT(*) AS c FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ?",
+                    (MYSQL_DATABASE, table, index_name),
+                ).fetchone()["c"] > 0
+                if not exists:
+                    conn.execute(f"CREATE INDEX {index_name} ON {table}({column})")
+        else:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_packs_customer_period ON material_packs(customer_period_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_customer_periods_order ON customer_account_periods(order_id)")
+    except Exception:
+        pass
+
+
 def ensure_onboarding_schema(conn) -> None:
     if DB_DRIVER == "mysql":
         conn.execute(
@@ -555,6 +575,40 @@ def ensure_customer_schema(conn) -> None:
               created_at DATETIME NOT NULL,
               KEY idx_customer_periods_customer (customer_id, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS subscription_orders (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              order_no VARCHAR(64) NOT NULL UNIQUE,
+              customer_id BIGINT NOT NULL,
+              account_type VARCHAR(20) NOT NULL,
+              term_quarters INT NOT NULL DEFAULT 1,
+              planned_start_date VARCHAR(32) NOT NULL,
+              service_end_date VARCHAR(32) NOT NULL,
+              amount_due DECIMAL(12,2) NOT NULL DEFAULT 0,
+              amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+              payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
+              status VARCHAR(20) NOT NULL DEFAULT 'pending_payment',
+              contract_no VARCHAR(64) NULL,
+              sales_owner VARCHAR(64) NULL,
+              created_by BIGINT NULL,
+              created_by_name VARCHAR(64) NULL,
+              created_at DATETIME NOT NULL,
+              paid_at DATETIME NULL,
+              KEY idx_subscription_orders_customer (customer_id, id),
+              KEY idx_subscription_orders_status (status, payment_status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS payment_records (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              order_id BIGINT NOT NULL,
+              amount DECIMAL(12,2) NOT NULL,
+              paid_at DATETIME NOT NULL,
+              payment_method VARCHAR(32) NULL,
+              transaction_no VARCHAR(128) NULL,
+              note VARCHAR(512) NULL,
+              confirmed_by BIGINT NULL,
+              confirmed_by_name VARCHAR(64) NULL,
+              created_at DATETIME NOT NULL,
+              KEY idx_payment_records_order (order_id, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
     else:
@@ -588,6 +642,39 @@ def ensure_customer_schema(conn) -> None:
               created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_customer_periods_customer ON customer_account_periods(customer_id, id);
+            CREATE TABLE IF NOT EXISTS subscription_orders (
+              id INTEGER PRIMARY KEY,
+              order_no TEXT NOT NULL UNIQUE,
+              customer_id INTEGER NOT NULL,
+              account_type TEXT NOT NULL,
+              term_quarters INTEGER NOT NULL DEFAULT 1,
+              planned_start_date TEXT NOT NULL,
+              service_end_date TEXT NOT NULL,
+              amount_due REAL NOT NULL DEFAULT 0,
+              amount_paid REAL NOT NULL DEFAULT 0,
+              payment_status TEXT NOT NULL DEFAULT 'unpaid',
+              status TEXT NOT NULL DEFAULT 'pending_payment',
+              contract_no TEXT,
+              sales_owner TEXT,
+              created_by INTEGER,
+              created_by_name TEXT,
+              created_at TEXT NOT NULL,
+              paid_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS payment_records (
+              id INTEGER PRIMARY KEY,
+              order_id INTEGER NOT NULL,
+              amount REAL NOT NULL,
+              paid_at TEXT NOT NULL,
+              payment_method TEXT,
+              transaction_no TEXT,
+              note TEXT,
+              confirmed_by INTEGER,
+              confirmed_by_name TEXT,
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_subscription_orders_customer ON subscription_orders(customer_id, id);
+            CREATE INDEX IF NOT EXISTS idx_payment_records_order ON payment_records(order_id, id);
             """
         )
 
@@ -619,9 +706,27 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "material_packs", "created_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "material_packs", "created_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "material_packs", "customer_period_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_customer_schema(conn)
+    ensure_column(conn, "customer_account_periods", "order_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "customer_account_periods", "period_no", "INT NOT NULL DEFAULT 1" if DB_DRIVER == "mysql" else "INTEGER NOT NULL DEFAULT 1")
+    ensure_column(conn, "customer_account_periods", "status", "VARCHAR(32) NOT NULL DEFAULT 'pending_fulfillment'" if DB_DRIVER == "mysql" else "TEXT NOT NULL DEFAULT 'pending_fulfillment'")
+    ensure_column(conn, "customer_account_periods", "allocated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_subscription_indexes(conn)
     ensure_pack_qr_index(conn)
     ensure_onboarding_schema(conn)
-    ensure_customer_schema(conn)
+    conn.execute(
+        """
+        UPDATE customer_account_periods cp
+        SET status = 'allocated'
+        WHERE status = 'pending_fulfillment'
+          AND EXISTS (SELECT 1 FROM material_packs p WHERE p.customer_period_id = cp.id)
+        """ if DB_DRIVER == "mysql" else """
+        UPDATE customer_account_periods
+        SET status = 'allocated'
+        WHERE status = 'pending_fulfillment'
+          AND EXISTS (SELECT 1 FROM material_packs p WHERE p.customer_period_id = customer_account_periods.id)
+        """
+    )
 
 
 def seed_data(conn) -> None:
@@ -1084,11 +1189,27 @@ class CustomerCreateReq(BaseModel):
     contactName: Optional[str] = None
     contactPhone: Optional[str] = None
     notes: Optional[str] = None
+    termQuarters: int = Field(default=1, ge=1, le=8)
+    amountDue: float = Field(default=0, ge=0)
+    contractNo: Optional[str] = None
+    salesOwner: Optional[str] = None
 
 
 class CustomerRenewReq(BaseModel):
     accountType: Optional[str] = None
     startDate: Optional[str] = None
+    termQuarters: int = Field(default=1, ge=1, le=8)
+    amountDue: float = Field(default=0, ge=0)
+    contractNo: Optional[str] = None
+    salesOwner: Optional[str] = None
+
+
+class PaymentConfirmReq(BaseModel):
+    amount: float = Field(ge=0)
+    paidAt: Optional[str] = None
+    paymentMethod: Optional[str] = None
+    transactionNo: Optional[str] = None
+    note: Optional[str] = None
 
 
 class CustomerStatusReq(BaseModel):
@@ -1216,7 +1337,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["customer-accounts", "customer-periods", "pack-inventory", "pack-qr", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "pack-inventory", "pack-qr", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -1445,7 +1566,8 @@ def onboarding_status(conn, user_id: int) -> dict:
             SELECT ub.id, ub.status AS binding_status, ub.enterprise_id, ub.boiler_id,
                    ub.material_pack_id, ub.bound_at, ub.expire_at AS binding_expire_at,
                    p.code AS pack_code, p.status AS pack_status, p.expire_at AS pack_expire_at,
-                   b.name AS boiler_name, e.name AS enterprise_name, ca.status AS customer_status
+                   b.name AS boiler_name, e.name AS enterprise_name, ca.status AS customer_status,
+                   cp.start_date AS customer_period_start
             FROM user_material_pack_bindings ub
             LEFT JOIN material_packs p ON p.id = ub.material_pack_id
             LEFT JOIN customer_account_periods cp ON cp.id = p.customer_period_id
@@ -1472,17 +1594,18 @@ def onboarding_status(conn, user_id: int) -> dict:
     expired = pack_is_expired(binding.get("pack_expire_at") or binding.get("binding_expire_at"))
     invalid_status = binding.get("pack_status") in ("expired", "invalid", "exhausted")
     customer_disabled = binding.get("customer_status") == "disabled"
+    period_not_started = bool(binding.get("customer_period_start") and binding["customer_period_start"] > datetime.utcnow().strftime("%Y-%m-%d"))
     inactive = binding.get("binding_status") != "active"
     required = inactive
-    can_inspect = not expired and not invalid_status and not customer_disabled and not inactive
-    reason = "customer_disabled" if customer_disabled else "pack_expired" if expired or binding.get("pack_status") == "expired" else "pack_invalid" if invalid_status else "binding_inactive" if inactive else "active"
+    can_inspect = not expired and not invalid_status and not customer_disabled and not period_not_started and not inactive
+    reason = "customer_disabled" if customer_disabled else "period_not_started" if period_not_started else "pack_expired" if expired or binding.get("pack_status") == "expired" else "pack_invalid" if invalid_status else "binding_inactive" if inactive else "active"
     return {
         "required": required,
         "canEnterHome": not required,
         "canInspect": can_inspect,
         "replacementRequired": not can_inspect,
         "reason": reason,
-        "message": "客户账户已停用，请联系服务支持人员" if customer_disabled else "材料包已过期，请更换材料包后再巡检" if reason == "pack_expired" else "材料包不可用，请更换材料包后再巡检" if invalid_status else "材料包绑定已解除，请重新扫描材料包" if inactive else "绑定有效",
+        "message": "客户账户已停用，请联系服务支持人员" if customer_disabled else "该材料包服务周期尚未开始" if period_not_started else "材料包已过期，请更换材料包后再巡检" if reason == "pack_expired" else "材料包不可用，请更换材料包后再巡检" if invalid_status else "材料包绑定已解除，请重新扫描材料包" if inactive else "绑定有效",
         "binding": {
             "id": binding["id"],
             "enterpriseId": binding["enterprise_id"],
@@ -2097,7 +2220,7 @@ def ensure_pack_customer_available(conn, pack: dict) -> None:
     account = row_to_dict(
         conn.execute(
             """
-            SELECT ca.status, cp.end_date
+            SELECT ca.status, cp.start_date, cp.end_date
             FROM customer_account_periods cp
             JOIN customer_accounts ca ON ca.id = cp.customer_id
             WHERE cp.id = ?
@@ -2107,6 +2230,8 @@ def ensure_pack_customer_available(conn, pack: dict) -> None:
     )
     if not account or account["status"] != "active":
         raise HTTPException(status_code=403, detail="客户账户已停用，请联系服务支持人员")
+    if account.get("start_date") and account["start_date"] > datetime.utcnow().strftime("%Y-%m-%d"):
+        raise HTTPException(status_code=400, detail="该材料包服务周期尚未开始")
     if account.get("end_date") and account["end_date"] < datetime.utcnow().strftime("%Y-%m-%d"):
         raise HTTPException(status_code=400, detail="客户服务周期已到期")
 
@@ -2162,6 +2287,7 @@ def customer_account_response(row) -> dict:
         "contactPhone": customer.get("contact_phone") or "",
         "notes": customer.get("notes") or "",
         "periodCount": int(customer.get("period_count") or 0),
+        "pendingOrderCount": int(customer.get("pending_order_count") or 0),
         "createdAt": customer.get("created_at"),
         "updatedAt": customer.get("updated_at"),
     }
@@ -2173,7 +2299,8 @@ def get_customer_account(conn, customer_id: int) -> dict:
             """
             SELECT c.*, e.name AS enterprise_name,
                    (SELECT COUNT(*) FROM customer_account_periods cp WHERE cp.customer_id = c.id) AS period_count,
-                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = c.current_period_id) AS allocated_pack_count
+                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = c.current_period_id) AS allocated_pack_count,
+                   (SELECT COUNT(*) FROM subscription_orders so WHERE so.customer_id = c.id AND so.status = 'pending_payment') AS pending_order_count
             FROM customer_accounts c
             LEFT JOIN enterprises e ON e.id = c.enterprise_id
             WHERE c.id = ?
@@ -2183,61 +2310,158 @@ def get_customer_account(conn, customer_id: int) -> dict:
     )
 
 
-def provision_customer_period(conn, customer: dict, account_type: str, start_date: date, current_user: dict) -> dict:
-    pack_count, months, pack_type = customer_policy(account_type)
-    end_date = add_service_months(start_date, months)
-    created_at = now()
-    period_cur = conn.execute(
+def subscription_end_date(account_type: str, start_date: date, term_quarters: int) -> date:
+    _, months, _ = customer_policy(account_type)
+    return add_service_months(start_date, months if account_type == "trial" else months * term_quarters)
+
+
+def order_response(row) -> dict:
+    order = row_to_dict(row)
+    if not order:
+        return {}
+    return {
+        "id": order["id"],
+        "orderNo": order["order_no"],
+        "customerId": order["customer_id"],
+        "enterpriseId": order.get("enterprise_id"),
+        "enterpriseName": order.get("enterprise_name") or "",
+        "accountType": order["account_type"],
+        "termQuarters": order["term_quarters"],
+        "plannedStartDate": order["planned_start_date"],
+        "serviceEndDate": order["service_end_date"],
+        "amountDue": decimal_to_number(order.get("amount_due")) or 0,
+        "amountPaid": decimal_to_number(order.get("amount_paid")) or 0,
+        "paymentStatus": order["payment_status"],
+        "status": order["status"],
+        "contractNo": order.get("contract_no") or "",
+        "salesOwner": order.get("sales_owner") or "",
+        "createdByName": order.get("created_by_name") or "",
+        "createdAt": order.get("created_at"),
+        "paidAt": order.get("paid_at"),
+        "periodCount": int(order.get("period_count") or 0),
+    }
+
+
+def get_subscription_order(conn, order_id: int) -> dict:
+    return row_to_dict(
+        conn.execute(
+            """
+            SELECT so.*, ca.enterprise_id, e.name AS enterprise_name,
+                   (SELECT COUNT(*) FROM customer_account_periods cp WHERE cp.order_id = so.id) AS period_count
+            FROM subscription_orders so
+            JOIN customer_accounts ca ON ca.id = so.customer_id
+            LEFT JOIN enterprises e ON e.id = ca.enterprise_id
+            WHERE so.id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+    )
+
+
+def create_subscription_order(conn, customer: dict, account_type: str, start_date: date, term_quarters: int, amount_due: float, contract_no: Optional[str], sales_owner: Optional[str], current_user: dict) -> dict:
+    customer_policy(account_type)
+    if account_type == "trial":
+        term_quarters = 1
+    service_end = subscription_end_date(account_type, start_date, term_quarters)
+    order_no = f"SO-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
+    cur = conn.execute(
         """
-        INSERT INTO customer_account_periods(
-          customer_id, account_type, start_date, end_date, pack_count,
-          created_by, created_by_name, created_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO subscription_orders(
+          order_no, customer_id, account_type, term_quarters, planned_start_date,
+          service_end_date, amount_due, amount_paid, payment_status, status,
+          contract_no, sales_owner, created_by, created_by_name, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, 0, 'unpaid', 'pending_payment', ?, ?, ?, ?, ?)
         """,
         (
+            order_no,
             customer["id"],
             account_type,
+            term_quarters,
             start_date.isoformat(),
-            end_date.isoformat(),
-            pack_count,
+            service_end.isoformat(),
+            amount_due,
+            (contract_no or "").strip() or None,
+            (sales_owner or "").strip() or None,
             current_user.get("id"),
             current_user.get("name") or current_user.get("username"),
-            created_at,
+            now(),
         ),
     )
-    period_id = period_cur.lastrowid
-    batch_no = f"CUST-{customer['id']}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    pack_req = PackBatchCreateReq(
-        enterpriseId=customer["enterprise_id"],
-        quantity=pack_count,
-        codePrefix="TRY" if account_type == "trial" else "SUB",
-        type=pack_type,
-        expireAt=end_date.isoformat(),
-        batchNo=batch_no,
-        warehouseLocation="客户直配",
-        productionDate=datetime.utcnow().strftime("%Y-%m-%d"),
-    )
-    packs = []
-    for _ in range(pack_count):
-        pack = insert_material_pack(conn, pack_req, current_user, generate_pack_code(pack_req.codePrefix))
-        conn.execute("UPDATE material_packs SET customer_period_id = ? WHERE id = ?", (period_id, pack["id"]))
-        packs.append(pack)
+    return get_subscription_order(conn, cur.lastrowid)
+
+
+def create_paid_order_periods(conn, order: dict, current_user: dict) -> list[dict]:
+    if conn.execute("SELECT id FROM customer_account_periods WHERE order_id = ? LIMIT 1", (order["id"],)).fetchone():
+        raise HTTPException(status_code=409, detail="该订单已经生成服务周期")
+    period_total = 1 if order["account_type"] == "trial" else int(order["term_quarters"])
+    pack_count, months, _ = customer_policy(order["account_type"])
+    period_start = parse_customer_date(order["planned_start_date"])
+    periods = []
+    for period_no in range(1, period_total + 1):
+        period_end = add_service_months(period_start, months)
+        cur = conn.execute(
+            """
+            INSERT INTO customer_account_periods(
+              customer_id, account_type, start_date, end_date, pack_count,
+              order_id, period_no, status, created_by, created_by_name, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, 'pending_fulfillment', ?, ?, ?)
+            """,
+            (
+                order["customer_id"],
+                order["account_type"],
+                period_start.isoformat(),
+                period_end.isoformat(),
+                pack_count,
+                order["id"],
+                period_no,
+                current_user.get("id"),
+                current_user.get("name") or current_user.get("username"),
+                now(),
+            ),
+        )
+        periods.append({"id": cur.lastrowid, "periodNo": period_no, "startDate": period_start.isoformat(), "endDate": period_end.isoformat(), "packCount": pack_count, "status": "pending_fulfillment"})
+        period_start = period_end + timedelta(days=1)
+    customer = get_customer_account(conn, order["customer_id"])
+    current_period_id = customer.get("current_period_id")
+    if not current_period_id or (customer.get("end_date") or "") < datetime.utcnow().strftime("%Y-%m-%d"):
+        current_period_id = periods[0]["id"]
+    account_start = min(filter(None, [customer.get("start_date"), order["planned_start_date"]]))
+    account_end = max(filter(None, [customer.get("end_date"), order["service_end_date"]]))
     conn.execute(
         """
         UPDATE customer_accounts
         SET account_type = ?, status = 'active', current_period_id = ?, start_date = ?, end_date = ?, updated_at = ?
         WHERE id = ?
         """,
-        (account_type, period_id, start_date.isoformat(), end_date.isoformat(), created_at, customer["id"]),
+        (order["account_type"], current_period_id, account_start, account_end, now(), order["customer_id"]),
     )
-    return {
-        "id": period_id,
-        "accountType": account_type,
-        "startDate": start_date.isoformat(),
-        "endDate": end_date.isoformat(),
-        "packCount": pack_count,
-        "packs": packs,
-    }
+    return periods
+
+
+def allocate_period_packs(conn, period: dict, current_user: dict) -> list[dict]:
+    existing = conn.execute("SELECT id FROM material_packs WHERE customer_period_id = ?", (period["id"],)).fetchall()
+    if existing:
+        raise HTTPException(status_code=409, detail="该服务周期已分配材料包")
+    _, _, pack_type = customer_policy(period["account_type"])
+    batch_no = f"CUST-{period['customer_id']}-P{period['period_no']}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    pack_req = PackBatchCreateReq(
+        enterpriseId=period["enterprise_id"],
+        quantity=period["pack_count"],
+        codePrefix="TRY" if period["account_type"] == "trial" else "SUB",
+        type=pack_type,
+        expireAt=period["end_date"],
+        batchNo=batch_no,
+        salesOrderNo=period.get("order_no"),
+        warehouseLocation="客户直配",
+        productionDate=datetime.utcnow().strftime("%Y-%m-%d"),
+    )
+    packs = []
+    for _ in range(period["pack_count"]):
+        pack = insert_material_pack(conn, pack_req, current_user, generate_pack_code(pack_req.codePrefix))
+        conn.execute("UPDATE material_packs SET customer_period_id = ? WHERE id = ?", (period["id"], pack["id"]))
+        packs.append(pack)
+    conn.execute("UPDATE customer_account_periods SET status = 'allocated', allocated_at = ? WHERE id = ?", (now(), period["id"]))
+    return packs
 
 
 @app.get("/customers")
@@ -2254,7 +2478,8 @@ def list_customers(authorization: Optional[str] = Header(None)):
             f"""
             SELECT c.*, e.name AS enterprise_name,
                    (SELECT COUNT(*) FROM customer_account_periods cp WHERE cp.customer_id = c.id) AS period_count,
-                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = c.current_period_id) AS allocated_pack_count
+                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = c.current_period_id) AS allocated_pack_count,
+                   (SELECT COUNT(*) FROM subscription_orders so WHERE so.customer_id = c.id AND so.status = 'pending_payment') AS pending_order_count
             FROM customer_accounts c
             LEFT JOIN enterprises e ON e.id = c.enterprise_id
             {where_clause}
@@ -2276,15 +2501,14 @@ def create_customer(req: CustomerCreateReq, authorization: Optional[str] = Heade
             raise HTTPException(status_code=404, detail="企业不存在或已停用")
         if conn.execute("SELECT id FROM customer_accounts WHERE enterprise_id = ?", (req.enterpriseId,)).fetchone():
             raise HTTPException(status_code=409, detail="该企业已开通客户账户，请使用续期功能")
-        _, months, _ = customer_policy(req.accountType)
-        end_date = add_service_months(start_date, months)
+        end_date = subscription_end_date(req.accountType, start_date, req.termQuarters)
         created_at = now()
         cur = conn.execute(
             """
             INSERT INTO customer_accounts(
               enterprise_id, account_type, status, start_date, end_date,
               contact_name, contact_phone, notes, created_by, created_by_name, created_at, updated_at
-            ) VALUES(?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES(?, ?, 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 req.enterpriseId,
@@ -2301,9 +2525,9 @@ def create_customer(req: CustomerCreateReq, authorization: Optional[str] = Heade
             ),
         )
         customer = {"id": cur.lastrowid, "enterprise_id": req.enterpriseId}
-        period = provision_customer_period(conn, customer, req.accountType, start_date, current_user)
+        order = create_subscription_order(conn, customer, req.accountType, start_date, req.termQuarters, req.amountDue, req.contractNo, req.salesOwner, current_user)
         response = customer_account_response(get_customer_account(conn, customer["id"]))
-    return {"customer": response, "period": period}
+    return {"customer": response, "order": order_response(order)}
 
 
 @app.post("/customers/{customer_id}/renew")
@@ -2313,14 +2537,106 @@ def renew_customer(customer_id: int, req: CustomerRenewReq, authorization: Optio
         customer = get_customer_account(conn, customer_id)
         if not customer:
             raise HTTPException(status_code=404, detail="客户账户不存在")
+        if customer["status"] == "pending_payment":
+            raise HTTPException(status_code=409, detail="客户已有待付款的首次订阅订单")
         account_type = req.accountType or customer["account_type"]
         customer_policy(account_type)
         current_end = parse_customer_date(customer.get("end_date"))
         default_start = max(datetime.utcnow().date(), current_end + timedelta(days=1))
         start_date = parse_customer_date(req.startDate, default_start)
-        period = provision_customer_period(conn, customer, account_type, start_date, current_user)
-        response = customer_account_response(get_customer_account(conn, customer_id))
-    return {"customer": response, "period": period}
+        order = create_subscription_order(conn, customer, account_type, start_date, req.termQuarters, req.amountDue, req.contractNo, req.salesOwner, current_user)
+    return {"customer": customer_account_response(customer), "order": order_response(order)}
+
+
+@app.get("/subscription-orders")
+def list_subscription_orders(authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    filters = []
+    params = []
+    if current_user["role"] == "enterprise_admin":
+        filters.append("ca.enterprise_id = ?")
+        params.append(current_user["enterpriseId"])
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT so.*, ca.enterprise_id, e.name AS enterprise_name,
+                   (SELECT COUNT(*) FROM customer_account_periods cp WHERE cp.order_id = so.id) AS period_count
+            FROM subscription_orders so
+            JOIN customer_accounts ca ON ca.id = so.customer_id
+            LEFT JOIN enterprises e ON e.id = ca.enterprise_id
+            {where_clause} ORDER BY so.id DESC
+            """,
+            tuple(params),
+        )
+        return [order_response(row) for row in rows]
+
+
+@app.post("/subscription-orders/{order_id}/confirm-payment")
+def confirm_subscription_payment(order_id: int, req: PaymentConfirmReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin",))
+    with db() as conn:
+        order = get_subscription_order(conn, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="订阅订单不存在")
+        if order["payment_status"] == "paid":
+            raise HTTPException(status_code=409, detail="该订单已确认全额收款")
+        paid_at = req.paidAt or now()
+        conn.execute(
+            """
+            INSERT INTO payment_records(
+              order_id, amount, paid_at, payment_method, transaction_no, note,
+              confirmed_by, confirmed_by_name, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (order_id, req.amount, paid_at, (req.paymentMethod or "").strip() or None, (req.transactionNo or "").strip() or None, (req.note or "").strip() or None, current_user.get("id"), current_user.get("name") or current_user.get("username"), now()),
+        )
+        amount_paid = float(order.get("amount_paid") or 0) + req.amount
+        amount_due = float(order.get("amount_due") or 0)
+        fully_paid = amount_paid >= amount_due
+        conn.execute(
+            "UPDATE subscription_orders SET amount_paid = ?, payment_status = ?, status = ?, paid_at = ? WHERE id = ?",
+            (amount_paid, "paid" if fully_paid else "partial", "paid" if fully_paid else "pending_payment", paid_at if fully_paid else None, order_id),
+        )
+        periods = create_paid_order_periods(conn, get_subscription_order(conn, order_id), current_user) if fully_paid else []
+        updated_order = order_response(get_subscription_order(conn, order_id))
+    return {"order": updated_order, "periods": periods, "fullyPaid": fully_paid}
+
+
+@app.get("/subscription-orders/{order_id}/payments")
+def list_subscription_payments(order_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        order = get_subscription_order(conn, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="订阅订单不存在")
+        ensure_enterprise_scope(current_user, order["enterprise_id"])
+        rows = conn.execute("SELECT id, amount, paid_at AS paidAt, payment_method AS paymentMethod, transaction_no AS transactionNo, note, confirmed_by_name AS confirmedByName, created_at AS createdAt FROM payment_records WHERE order_id = ? ORDER BY id DESC", (order_id,))
+        return [row_to_dict(row) for row in rows]
+
+
+@app.post("/customer-periods/{period_id}/allocate-packs")
+def allocate_customer_period(period_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin",))
+    with db() as conn:
+        period = row_to_dict(
+            conn.execute(
+                """
+                SELECT cp.*, ca.enterprise_id, so.order_no, so.payment_status
+                FROM customer_account_periods cp
+                JOIN customer_accounts ca ON ca.id = cp.customer_id
+                JOIN subscription_orders so ON so.id = cp.order_id
+                WHERE cp.id = ?
+                """,
+                (period_id,),
+            ).fetchone()
+        )
+        if not period:
+            raise HTTPException(status_code=404, detail="服务周期不存在")
+        if period["payment_status"] != "paid":
+            raise HTTPException(status_code=400, detail="订单尚未完成收款")
+        packs = allocate_period_packs(conn, period, current_user)
+    return {"periodId": period_id, "count": len(packs), "packs": packs, "status": "allocated"}
 
 
 @app.get("/customers/{customer_id}/periods")
@@ -2335,9 +2651,13 @@ def list_customer_periods(customer_id: int, authorization: Optional[str] = Heade
             """
             SELECT cp.id, cp.account_type AS accountType, cp.start_date AS startDate,
                    cp.end_date AS endDate, cp.pack_count AS packCount,
+                   cp.order_id AS orderId, cp.period_no AS periodNo, cp.status,
+                   so.order_no AS orderNo, cp.allocated_at AS allocatedAt,
                    cp.created_by_name AS createdByName, cp.created_at AS createdAt,
                    (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = cp.id) AS allocatedPackCount
-            FROM customer_account_periods cp WHERE cp.customer_id = ? ORDER BY cp.id DESC
+            FROM customer_account_periods cp
+            LEFT JOIN subscription_orders so ON so.id = cp.order_id
+            WHERE cp.customer_id = ? ORDER BY cp.id DESC
             """,
             (customer_id,),
         )
@@ -2350,9 +2670,12 @@ def update_customer_status(customer_id: int, req: CustomerStatusReq, authorizati
     if req.status not in ("active", "disabled"):
         raise HTTPException(status_code=400, detail="状态不合法")
     with db() as conn:
-        cur = conn.execute("UPDATE customer_accounts SET status = ?, updated_at = ? WHERE id = ?", (req.status, now(), customer_id))
-        if cur.rowcount == 0:
+        customer = get_customer_account(conn, customer_id)
+        if not customer:
             raise HTTPException(status_code=404, detail="客户账户不存在")
+        if req.status == "active" and not conn.execute("SELECT id FROM subscription_orders WHERE customer_id = ? AND payment_status = 'paid' LIMIT 1", (customer_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="客户尚无已付款订阅，不能直接启用")
+        cur = conn.execute("UPDATE customer_accounts SET status = ?, updated_at = ? WHERE id = ?", (req.status, now(), customer_id))
         return customer_account_response(get_customer_account(conn, customer_id))
 
 
