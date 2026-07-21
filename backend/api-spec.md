@@ -117,7 +117,42 @@
 }
 ```
 
-## 3. 检测包
+## 3. 客户账户
+客户账户与企业一一对应。试用账户每个周期 1 个月并自动分配 1 个材料包；订阅账户每个周期 3 个月并自动分配 3 个材料包，同一周期内所有材料包使用相同到期日。
+
+### GET `/customers`
+查询客户账户、当前服务周期和已分配材料包数量，需要后台管理权限。
+
+### POST `/customers`
+开通客户账户并自动创建首个服务周期和材料包，需要 `platform_admin`。
+```json
+{
+  "enterpriseId": 1,
+  "accountType": "subscription",
+  "startDate": "2026-07-21",
+  "contactName": "张经理",
+  "contactPhone": "13800000000",
+  "notes": "季度订阅"
+}
+```
+`accountType` 支持 `trial` 和 `subscription`。
+
+### POST `/customers/{id}/renew`
+续期或从试用转为订阅。未传 `startDate` 时，新周期自动接在当前周期之后。
+```json
+{ "accountType": "subscription" }
+```
+
+### GET `/customers/{id}/periods`
+查询该客户历次服务周期及每周期材料包数量。
+
+### PATCH `/customers/{id}/status`
+启用或停用客户账户。停用后，该客户周期内的材料包不能扫码、激活或巡检。
+```json
+{ "status": "disabled" }
+```
+
+## 4. 检测包
 ### GET `/material-packs?enterpriseId=1`
 查询企业检测包列表。
 
@@ -185,7 +220,7 @@
 ```
 作废会同步结束该材料包当前有效的用户绑定。
 
-## 4. 巡检
+## 5. 巡检
 ### POST `/inspections`
 ```json
 { "boilerId": 1001, "materialPackId": 5001, "inspectionType": "daily", "retestTaskId": null }
@@ -319,7 +354,7 @@
 { "serviceAdvice": "已复核现场情况，建议先按排污制度执行一次定排，2小时后复测氯离子和总碱度。" }
 ```
 
-## 5. 记录与报告
+## 6. 记录与报告
 ### GET `/inspections`
 支持筛选：
 ```text
@@ -329,7 +364,7 @@
 ### GET `/record-detail?id=9001`
 ### GET `/reports/monthly?enterpriseId=1&month=2026-07`
 
-## 6. 用户权限
+## 7. 用户权限
 ### POST `/auth/admin-login`
 后台账号登录，账号来自数据库 `users` 表，密码使用 PBKDF2-SHA256 加密保存。
 

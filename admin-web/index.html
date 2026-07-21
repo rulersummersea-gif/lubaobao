@@ -67,6 +67,7 @@
     <div class="muted" id="who">未登录</div>
     <div class="nav">
       <button data-tab="dashboard" class="active">仪表盘</button>
+      <button data-tab="customers">客户管理</button>
       <button data-tab="enterprises">企业管理</button>
       <button data-tab="packs">材料包管理</button>
       <button data-tab="boilers">锅炉管理</button>
@@ -101,6 +102,34 @@
         <div class="kpi"><span>锅炉数量</span><b id="boilerCount">-</b></div>
         <div class="kpi"><span>材料包数量</span><b id="packCount">-</b></div>
         <div class="kpi"><span>巡检记录</span><b id="inspectionCount">-</b></div>
+      </div>
+    </section>
+
+    <section id="customers" class="tab">
+      <div class="card">
+        <h2>开通客户账户</h2>
+        <div class="row pack-form">
+          <div class="field wide"><label for="customerEnterprise">客户企业</label><select id="customerEnterprise"></select></div>
+          <div class="field"><label for="customerAccountType">账户档位</label><select id="customerAccountType"><option value="trial">试用账户 · 1包/1个月</option><option value="subscription">订阅账户 · 3包/3个月</option></select></div>
+          <div class="field"><label for="customerStartDate">生效日期</label><input id="customerStartDate" type="date"></div>
+          <div class="field"><label for="customerContact">联系人</label><input id="customerContact" placeholder="客户联系人"></div>
+          <div class="field"><label for="customerPhone">联系电话</label><input id="customerPhone" placeholder="手机号或座机"></div>
+          <div class="field wide"><label for="customerNotes">客户备注</label><input id="customerNotes" placeholder="销售单、服务约定等"></div>
+          <button id="createCustomerBtn">开通并分配材料包</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">客户账户</h2>
+          <select id="customerTypeFilter"><option value="">全部档位</option><option value="trial">试用账户</option><option value="subscription">订阅账户</option></select>
+          <input id="customerSearch" placeholder="搜索企业/联系人/电话">
+          <button class="secondary" id="loadCustomersBtn">刷新客户</button>
+        </div>
+        <table><thead><tr><th>客户企业</th><th>账户档位</th><th>当前周期</th><th>材料包</th><th>联系人</th><th>状态</th><th>操作</th></tr></thead><tbody id="customersBody"></tbody></table>
+        <div id="customerPeriods" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0">
+          <div class="row"><h2 id="customerPeriodsTitle" style="margin-right:auto">服务周期记录</h2><button class="secondary" id="closeCustomerPeriodsBtn">关闭</button></div>
+          <table><thead><tr><th>周期</th><th>档位</th><th>有效期</th><th>材料包</th><th>操作人</th><th>创建时间</th></tr></thead><tbody id="customerPeriodsBody"></tbody></table>
+        </div>
       </div>
     </section>
 
@@ -339,6 +368,7 @@ const state = {
   retestTasks: [],
   packs: [],
   packQr: null,
+  customers: [],
 };
 
 function base() { return $('base').value.trim() || '/api'; }
@@ -416,12 +446,78 @@ async function loadEnterprises() {
   syncEnterpriseSelects();
 }
 function syncEnterpriseSelects() {
-  ['packEnterprise', 'packEnterpriseFilter'].forEach((id) => {
+  ['packEnterprise', 'packEnterpriseFilter', 'customerEnterprise'].forEach((id) => {
     const select = $(id);
     const current = select.value;
     select.innerHTML = state.enterprises.filter((e) => e.status === 'active').map((e) => `<option value="${e.id}">${esc(e.name)}（${e.id}）</option>`).join('');
     if ([...select.options].some((option) => option.value === current)) select.value = current;
   });
+}
+function customerTypeText(type) { return type === 'subscription' ? '订阅账户' : '试用账户'; }
+function customerStatusText(status) { return ({ active: '服务中', expired: '已到期', disabled: '已停用' })[status] || status || '-'; }
+async function loadCustomers() {
+  state.customers = await api('/customers');
+  renderCustomers();
+}
+function renderCustomers() {
+  const type = $('customerTypeFilter').value;
+  const keyword = $('customerSearch').value.trim().toLowerCase();
+  const customers = state.customers.filter((item) => {
+    const haystack = [item.enterpriseName, item.contactName, item.contactPhone].join(' ').toLowerCase();
+    return (!type || item.accountType === type) && (!keyword || haystack.includes(keyword));
+  });
+  $('customersBody').innerHTML = customers.map((item) => `
+    <tr>
+      <td><b>${esc(item.enterpriseName)}</b><div class="muted">企业 ID ${item.enterpriseId}</div></td>
+      <td>${tag(customerTypeText(item.accountType))}<div class="muted">${item.accountType === 'trial' ? '1包 / 1个月' : '3包 / 1季度'}</div></td>
+      <td class="nowrap">${item.startDate} 至 ${item.endDate}<div class="muted">累计 ${item.periodCount} 个周期</div></td>
+      <td>${item.allocatedPackCount} / ${item.packQuota} 包<div class="muted">当前周期统一到期</div></td>
+      <td>${esc(item.contactName || '-')}<div class="muted">${esc(item.contactPhone || '-')}</div></td>
+      <td>${tag(customerStatusText(item.effectiveStatus))}</td>
+      <td>
+        <button class="secondary" onclick="showCustomerPeriods(${item.id})">周期记录</button>
+        ${item.accountType === 'trial' ? `<button onclick="renewCustomer(${item.id}, 'subscription')">转订阅</button>` : `<button onclick="renewCustomer(${item.id}, 'subscription')">续一季度</button>`}
+        ${item.status === 'disabled' ? `<button class="secondary" onclick="setCustomerStatus(${item.id}, 'active')">启用</button>` : `<button class="warn" onclick="setCustomerStatus(${item.id}, 'disabled')">停用</button>`}
+      </td>
+    </tr>`).join('');
+  if (!customers.length) $('customersBody').innerHTML = '<tr><td colspan="7" class="empty">暂无符合条件的客户账户</td></tr>';
+}
+async function createCustomer() {
+  const payload = {
+    enterpriseId: Number($('customerEnterprise').value),
+    accountType: $('customerAccountType').value,
+    startDate: $('customerStartDate').value || null,
+    contactName: $('customerContact').value.trim() || null,
+    contactPhone: $('customerPhone').value.trim() || null,
+    notes: $('customerNotes').value.trim() || null,
+  };
+  const result = await api('/customers', { method: 'POST', body: JSON.stringify(payload) });
+  $('packEnterpriseFilter').value = String(payload.enterpriseId);
+  await Promise.all([loadCustomers(), loadPacks(), loadDashboard()]);
+  alert(`${customerTypeText(payload.accountType)}已开通，自动分配 ${result.period.packCount} 个材料包，有效期至 ${result.period.endDate}`);
+}
+async function renewCustomer(id, accountType) {
+  const customer = state.customers.find((item) => item.id === id);
+  if (!customer) return;
+  const action = accountType === 'subscription' && customer.accountType === 'trial' ? '转为订阅账户并分配3个季度包' : '续订一个季度并分配3个材料包';
+  if (!confirm(`确认将 ${customer.enterpriseName} ${action}？`)) return;
+  const result = await api(`/customers/${id}/renew`, { method: 'POST', body: JSON.stringify({ accountType }) });
+  await Promise.all([loadCustomers(), loadPacks(), loadDashboard()]);
+  alert(`办理成功，新周期至 ${result.period.endDate}`);
+}
+async function setCustomerStatus(id, status) {
+  const customer = state.customers.find((item) => item.id === id);
+  if (!customer) return;
+  if (!confirm(`确认${status === 'disabled' ? '停用' : '启用'} ${customer.enterpriseName} 的客户账户？`)) return;
+  await api(`/customers/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+  await loadCustomers();
+}
+async function showCustomerPeriods(id) {
+  const customer = state.customers.find((item) => item.id === id);
+  const periods = await api(`/customers/${id}/periods`);
+  $('customerPeriodsTitle').textContent = `${customer?.enterpriseName || '客户'} · 服务周期记录`;
+  $('customerPeriodsBody').innerHTML = periods.map((period) => `<tr><td>${period.id}</td><td>${customerTypeText(period.accountType)}</td><td>${period.startDate} 至 ${period.endDate}</td><td>${period.allocatedPackCount} / ${period.packCount} 包</td><td>${esc(period.createdByName || '-')}</td><td>${period.createdAt || '-'}</td></tr>`).join('');
+  $('customerPeriods').style.display = 'block';
 }
 function resetEnterpriseForm() {
   $('enterpriseId').value = '';
@@ -884,7 +980,7 @@ async function loadReport() {
 async function refreshAll() {
   await loadDashboard();
   await loadEnterprises();
-  await Promise.all([loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
+  await Promise.all([loadCustomers(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
 }
 
 document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
@@ -893,6 +989,11 @@ $('refreshBtn').onclick = () => refreshAll().catch(showDebug);
 $('saveEnterpriseBtn').onclick = () => saveEnterprise().catch(showDebug);
 $('resetEnterpriseFormBtn').onclick = () => resetEnterpriseForm();
 $('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
+$('createCustomerBtn').onclick = () => createCustomer().catch(showDebug);
+$('loadCustomersBtn').onclick = () => loadCustomers().catch(showDebug);
+$('customerTypeFilter').onchange = () => renderCustomers();
+$('customerSearch').oninput = () => renderCustomers();
+$('closeCustomerPeriodsBtn').onclick = () => $('customerPeriods').style.display = 'none';
 $('createPackBtn').onclick = () => createPack().catch(showDebug);
 $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
 $('packEnterpriseFilter').onchange = () => loadPacks().catch(showDebug);
@@ -919,6 +1020,7 @@ resetEnterpriseForm();
 resetBoilerForm();
 resetStandardForm();
 resetUserForm();
+$('customerStartDate').value = new Date().toISOString().slice(0, 10);
 refreshAll().catch(showDebug);
 </script>
 </body>

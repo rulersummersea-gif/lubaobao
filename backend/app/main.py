@@ -8,7 +8,8 @@ import secrets
 import sqlite3
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from calendar import monthrange
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +34,7 @@ WX_APPSECRET = os.getenv("WX_APPSECRET", "")
 PACK_QR_BASE_URL = os.getenv("PACK_QR_BASE_URL", "https://mp.lubaobao.cn/bind")
 PASSWORD_ITERATIONS = 200000
 
-app = FastAPI(title="Lubaobao API", version="0.6.0-pack-inventory")
+app = FastAPI(title="Lubaobao API", version="0.7.0-customer-accounts")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -521,6 +522,76 @@ def ensure_onboarding_schema(conn) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_user_pack_bindings_pack ON user_material_pack_bindings(material_pack_id)")
 
 
+def ensure_customer_schema(conn) -> None:
+    if DB_DRIVER == "mysql":
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS customer_accounts (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              enterprise_id BIGINT NOT NULL UNIQUE,
+              account_type VARCHAR(20) NOT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'active',
+              current_period_id BIGINT NULL,
+              start_date VARCHAR(32) NOT NULL,
+              end_date VARCHAR(32) NOT NULL,
+              contact_name VARCHAR(64) NULL,
+              contact_phone VARCHAR(32) NULL,
+              notes VARCHAR(512) NULL,
+              created_by BIGINT NULL,
+              created_by_name VARCHAR(64) NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NOT NULL,
+              KEY idx_customer_accounts_status (status, account_type)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS customer_account_periods (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              customer_id BIGINT NOT NULL,
+              account_type VARCHAR(20) NOT NULL,
+              start_date VARCHAR(32) NOT NULL,
+              end_date VARCHAR(32) NOT NULL,
+              pack_count INT NOT NULL,
+              created_by BIGINT NULL,
+              created_by_name VARCHAR(64) NULL,
+              created_at DATETIME NOT NULL,
+              KEY idx_customer_periods_customer (customer_id, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+    else:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS customer_accounts (
+              id INTEGER PRIMARY KEY,
+              enterprise_id INTEGER NOT NULL UNIQUE,
+              account_type TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'active',
+              current_period_id INTEGER,
+              start_date TEXT NOT NULL,
+              end_date TEXT NOT NULL,
+              contact_name TEXT,
+              contact_phone TEXT,
+              notes TEXT,
+              created_by INTEGER,
+              created_by_name TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS customer_account_periods (
+              id INTEGER PRIMARY KEY,
+              customer_id INTEGER NOT NULL,
+              account_type TEXT NOT NULL,
+              start_date TEXT NOT NULL,
+              end_date TEXT NOT NULL,
+              pack_count INTEGER NOT NULL,
+              created_by INTEGER,
+              created_by_name TEXT,
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_customer_periods_customer ON customer_account_periods(customer_id, id);
+            """
+        )
+
+
 def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "water_quality_limits", "updated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
@@ -547,8 +618,10 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "material_packs", "printed_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "material_packs", "created_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "material_packs", "created_by_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "material_packs", "customer_period_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_pack_qr_index(conn)
     ensure_onboarding_schema(conn)
+    ensure_customer_schema(conn)
 
 
 def seed_data(conn) -> None:
@@ -1004,6 +1077,24 @@ class EnterpriseStatusReq(BaseModel):
     status: str
 
 
+class CustomerCreateReq(BaseModel):
+    enterpriseId: int
+    accountType: str
+    startDate: Optional[str] = None
+    contactName: Optional[str] = None
+    contactPhone: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class CustomerRenewReq(BaseModel):
+    accountType: Optional[str] = None
+    startDate: Optional[str] = None
+
+
+class CustomerStatusReq(BaseModel):
+    status: str
+
+
 class BoilerCreateReq(BaseModel):
     enterpriseId: int = 1
     deviceCode: str
@@ -1125,7 +1216,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["pack-inventory", "pack-qr", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["customer-accounts", "customer-periods", "pack-inventory", "pack-qr", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -1354,9 +1445,11 @@ def onboarding_status(conn, user_id: int) -> dict:
             SELECT ub.id, ub.status AS binding_status, ub.enterprise_id, ub.boiler_id,
                    ub.material_pack_id, ub.bound_at, ub.expire_at AS binding_expire_at,
                    p.code AS pack_code, p.status AS pack_status, p.expire_at AS pack_expire_at,
-                   b.name AS boiler_name, e.name AS enterprise_name
+                   b.name AS boiler_name, e.name AS enterprise_name, ca.status AS customer_status
             FROM user_material_pack_bindings ub
             LEFT JOIN material_packs p ON p.id = ub.material_pack_id
+            LEFT JOIN customer_account_periods cp ON cp.id = p.customer_period_id
+            LEFT JOIN customer_accounts ca ON ca.id = cp.customer_id
             LEFT JOIN boilers b ON b.id = ub.boiler_id
             LEFT JOIN enterprises e ON e.id = ub.enterprise_id
             WHERE ub.user_id = ?
@@ -1378,17 +1471,18 @@ def onboarding_status(conn, user_id: int) -> dict:
 
     expired = pack_is_expired(binding.get("pack_expire_at") or binding.get("binding_expire_at"))
     invalid_status = binding.get("pack_status") in ("expired", "invalid", "exhausted")
+    customer_disabled = binding.get("customer_status") == "disabled"
     inactive = binding.get("binding_status") != "active"
     required = inactive
-    can_inspect = not expired and not invalid_status and not inactive
-    reason = "pack_expired" if expired or binding.get("pack_status") == "expired" else "pack_invalid" if invalid_status else "binding_inactive" if inactive else "active"
+    can_inspect = not expired and not invalid_status and not customer_disabled and not inactive
+    reason = "customer_disabled" if customer_disabled else "pack_expired" if expired or binding.get("pack_status") == "expired" else "pack_invalid" if invalid_status else "binding_inactive" if inactive else "active"
     return {
         "required": required,
         "canEnterHome": not required,
         "canInspect": can_inspect,
         "replacementRequired": not can_inspect,
         "reason": reason,
-        "message": "材料包已过期，请更换材料包后再巡检" if reason == "pack_expired" else "材料包不可用，请更换材料包后再巡检" if invalid_status else "材料包绑定已解除，请重新扫描材料包" if inactive else "绑定有效",
+        "message": "客户账户已停用，请联系服务支持人员" if customer_disabled else "材料包已过期，请更换材料包后再巡检" if reason == "pack_expired" else "材料包不可用，请更换材料包后再巡检" if invalid_status else "材料包绑定已解除，请重新扫描材料包" if inactive else "绑定有效",
         "binding": {
             "id": binding["id"],
             "enterpriseId": binding["enterprise_id"],
@@ -1504,6 +1598,7 @@ def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str]
             if pack_is_expired(pack.get("expire_at")):
                 conn.execute("UPDATE material_packs SET status = 'expired' WHERE id = ?", (pack["id"],))
             raise HTTPException(status_code=400, detail="材料包已过期或不可用")
+        ensure_pack_customer_available(conn, pack)
 
         previous = row_to_dict(
             conn.execute(
@@ -1995,6 +2090,272 @@ def insert_material_pack(conn, req, current_user: dict, code: str) -> dict:
     return {"id": cur.lastrowid, "code": code, "enterpriseId": req.enterpriseId, "status": "unactivated"}
 
 
+def ensure_pack_customer_available(conn, pack: dict) -> None:
+    period_id = pack.get("customer_period_id")
+    if not period_id:
+        return
+    account = row_to_dict(
+        conn.execute(
+            """
+            SELECT ca.status, cp.end_date
+            FROM customer_account_periods cp
+            JOIN customer_accounts ca ON ca.id = cp.customer_id
+            WHERE cp.id = ?
+            """,
+            (period_id,),
+        ).fetchone()
+    )
+    if not account or account["status"] != "active":
+        raise HTTPException(status_code=403, detail="客户账户已停用，请联系服务支持人员")
+    if account.get("end_date") and account["end_date"] < datetime.utcnow().strftime("%Y-%m-%d"):
+        raise HTTPException(status_code=400, detail="客户服务周期已到期")
+
+
+def customer_policy(account_type: str) -> tuple[int, int, str]:
+    policies = {
+        "trial": (1, 1, "试用包"),
+        "subscription": (3, 3, "季度订阅包"),
+    }
+    if account_type not in policies:
+        raise HTTPException(status_code=400, detail="客户类型仅支持试用账户或订阅账户")
+    return policies[account_type]
+
+
+def parse_customer_date(value: Optional[str], fallback: Optional[date] = None) -> date:
+    if not value:
+        return fallback or datetime.utcnow().date()
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日期格式应为 YYYY-MM-DD") from exc
+
+
+def add_service_months(start_date: date, months: int) -> date:
+    month_index = start_date.month - 1 + months
+    year = start_date.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start_date.day, monthrange(year, month)[1])
+    return date(year, month, day) - timedelta(days=1)
+
+
+def customer_account_response(row) -> dict:
+    customer = row_to_dict(row)
+    if not customer:
+        return {}
+    end_date = customer.get("end_date") or ""
+    effective_status = customer.get("status")
+    if effective_status == "active" and end_date and end_date < datetime.utcnow().strftime("%Y-%m-%d"):
+        effective_status = "expired"
+    return {
+        "id": customer["id"],
+        "enterpriseId": customer["enterprise_id"],
+        "enterpriseName": customer.get("enterprise_name") or "",
+        "accountType": customer["account_type"],
+        "status": customer["status"],
+        "effectiveStatus": effective_status,
+        "currentPeriodId": customer.get("current_period_id"),
+        "startDate": customer["start_date"],
+        "endDate": end_date,
+        "packQuota": 1 if customer["account_type"] == "trial" else 3,
+        "allocatedPackCount": int(customer.get("allocated_pack_count") or 0),
+        "contactName": customer.get("contact_name") or "",
+        "contactPhone": customer.get("contact_phone") or "",
+        "notes": customer.get("notes") or "",
+        "periodCount": int(customer.get("period_count") or 0),
+        "createdAt": customer.get("created_at"),
+        "updatedAt": customer.get("updated_at"),
+    }
+
+
+def get_customer_account(conn, customer_id: int) -> dict:
+    return row_to_dict(
+        conn.execute(
+            """
+            SELECT c.*, e.name AS enterprise_name,
+                   (SELECT COUNT(*) FROM customer_account_periods cp WHERE cp.customer_id = c.id) AS period_count,
+                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = c.current_period_id) AS allocated_pack_count
+            FROM customer_accounts c
+            LEFT JOIN enterprises e ON e.id = c.enterprise_id
+            WHERE c.id = ?
+            """,
+            (customer_id,),
+        ).fetchone()
+    )
+
+
+def provision_customer_period(conn, customer: dict, account_type: str, start_date: date, current_user: dict) -> dict:
+    pack_count, months, pack_type = customer_policy(account_type)
+    end_date = add_service_months(start_date, months)
+    created_at = now()
+    period_cur = conn.execute(
+        """
+        INSERT INTO customer_account_periods(
+          customer_id, account_type, start_date, end_date, pack_count,
+          created_by, created_by_name, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            customer["id"],
+            account_type,
+            start_date.isoformat(),
+            end_date.isoformat(),
+            pack_count,
+            current_user.get("id"),
+            current_user.get("name") or current_user.get("username"),
+            created_at,
+        ),
+    )
+    period_id = period_cur.lastrowid
+    batch_no = f"CUST-{customer['id']}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    pack_req = PackBatchCreateReq(
+        enterpriseId=customer["enterprise_id"],
+        quantity=pack_count,
+        codePrefix="TRY" if account_type == "trial" else "SUB",
+        type=pack_type,
+        expireAt=end_date.isoformat(),
+        batchNo=batch_no,
+        warehouseLocation="客户直配",
+        productionDate=datetime.utcnow().strftime("%Y-%m-%d"),
+    )
+    packs = []
+    for _ in range(pack_count):
+        pack = insert_material_pack(conn, pack_req, current_user, generate_pack_code(pack_req.codePrefix))
+        conn.execute("UPDATE material_packs SET customer_period_id = ? WHERE id = ?", (period_id, pack["id"]))
+        packs.append(pack)
+    conn.execute(
+        """
+        UPDATE customer_accounts
+        SET account_type = ?, status = 'active', current_period_id = ?, start_date = ?, end_date = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (account_type, period_id, start_date.isoformat(), end_date.isoformat(), created_at, customer["id"]),
+    )
+    return {
+        "id": period_id,
+        "accountType": account_type,
+        "startDate": start_date.isoformat(),
+        "endDate": end_date.isoformat(),
+        "packCount": pack_count,
+        "packs": packs,
+    }
+
+
+@app.get("/customers")
+def list_customers(authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    filters = []
+    params = []
+    if current_user["role"] == "enterprise_admin":
+        filters.append("c.enterprise_id = ?")
+        params.append(current_user["enterpriseId"])
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT c.*, e.name AS enterprise_name,
+                   (SELECT COUNT(*) FROM customer_account_periods cp WHERE cp.customer_id = c.id) AS period_count,
+                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = c.current_period_id) AS allocated_pack_count
+            FROM customer_accounts c
+            LEFT JOIN enterprises e ON e.id = c.enterprise_id
+            {where_clause}
+            ORDER BY c.id DESC
+            """,
+            tuple(params),
+        )
+        return [customer_account_response(row) for row in rows]
+
+
+@app.post("/customers")
+def create_customer(req: CustomerCreateReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin",))
+    customer_policy(req.accountType)
+    start_date = parse_customer_date(req.startDate)
+    with db() as conn:
+        enterprise = row_to_dict(conn.execute("SELECT id, status FROM enterprises WHERE id = ?", (req.enterpriseId,)).fetchone())
+        if not enterprise or enterprise["status"] != "active":
+            raise HTTPException(status_code=404, detail="企业不存在或已停用")
+        if conn.execute("SELECT id FROM customer_accounts WHERE enterprise_id = ?", (req.enterpriseId,)).fetchone():
+            raise HTTPException(status_code=409, detail="该企业已开通客户账户，请使用续期功能")
+        _, months, _ = customer_policy(req.accountType)
+        end_date = add_service_months(start_date, months)
+        created_at = now()
+        cur = conn.execute(
+            """
+            INSERT INTO customer_accounts(
+              enterprise_id, account_type, status, start_date, end_date,
+              contact_name, contact_phone, notes, created_by, created_by_name, created_at, updated_at
+            ) VALUES(?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                req.enterpriseId,
+                req.accountType,
+                start_date.isoformat(),
+                end_date.isoformat(),
+                (req.contactName or "").strip() or None,
+                (req.contactPhone or "").strip() or None,
+                (req.notes or "").strip() or None,
+                current_user.get("id"),
+                current_user.get("name") or current_user.get("username"),
+                created_at,
+                created_at,
+            ),
+        )
+        customer = {"id": cur.lastrowid, "enterprise_id": req.enterpriseId}
+        period = provision_customer_period(conn, customer, req.accountType, start_date, current_user)
+        response = customer_account_response(get_customer_account(conn, customer["id"]))
+    return {"customer": response, "period": period}
+
+
+@app.post("/customers/{customer_id}/renew")
+def renew_customer(customer_id: int, req: CustomerRenewReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin",))
+    with db() as conn:
+        customer = get_customer_account(conn, customer_id)
+        if not customer:
+            raise HTTPException(status_code=404, detail="客户账户不存在")
+        account_type = req.accountType or customer["account_type"]
+        customer_policy(account_type)
+        current_end = parse_customer_date(customer.get("end_date"))
+        default_start = max(datetime.utcnow().date(), current_end + timedelta(days=1))
+        start_date = parse_customer_date(req.startDate, default_start)
+        period = provision_customer_period(conn, customer, account_type, start_date, current_user)
+        response = customer_account_response(get_customer_account(conn, customer_id))
+    return {"customer": response, "period": period}
+
+
+@app.get("/customers/{customer_id}/periods")
+def list_customer_periods(customer_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        customer = get_customer_account(conn, customer_id)
+        if not customer:
+            raise HTTPException(status_code=404, detail="客户账户不存在")
+        ensure_enterprise_scope(current_user, customer["enterprise_id"])
+        rows = conn.execute(
+            """
+            SELECT cp.id, cp.account_type AS accountType, cp.start_date AS startDate,
+                   cp.end_date AS endDate, cp.pack_count AS packCount,
+                   cp.created_by_name AS createdByName, cp.created_at AS createdAt,
+                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = cp.id) AS allocatedPackCount
+            FROM customer_account_periods cp WHERE cp.customer_id = ? ORDER BY cp.id DESC
+            """,
+            (customer_id,),
+        )
+        return [row_to_dict(row) for row in rows]
+
+
+@app.patch("/customers/{customer_id}/status")
+def update_customer_status(customer_id: int, req: CustomerStatusReq, authorization: Optional[str] = Header(None)):
+    require_roles(authorization, ("platform_admin",))
+    if req.status not in ("active", "disabled"):
+        raise HTTPException(status_code=400, detail="状态不合法")
+    with db() as conn:
+        cur = conn.execute("UPDATE customer_accounts SET status = ?, updated_at = ? WHERE id = ?", (req.status, now(), customer_id))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="客户账户不存在")
+        return customer_account_response(get_customer_account(conn, customer_id))
+
+
 @app.get("/material-packs")
 def list_packs(enterpriseId: int = 1):
     with db() as conn:
@@ -2103,11 +2464,13 @@ def verify_pack(req: PackVerifyReq):
                 (req.code,),
             ).fetchone()
         )
+        if pack:
+            ensure_pack_customer_available(conn, pack)
     if not pack:
         raise HTTPException(status_code=404, detail="检测包不存在")
     if req.qrToken and pack.get("qr_token") and not hmac.compare_digest(req.qrToken, pack["qr_token"]):
         raise HTTPException(status_code=400, detail="材料包二维码无效")
-    if pack["status"] in ("expired", "invalid", "exhausted"):
+    if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
         raise HTTPException(status_code=400, detail="检测包不可用")
     return {
         "valid": True,
@@ -2132,6 +2495,7 @@ def activate_pack(req: PackActivateReq):
             raise HTTPException(status_code=404, detail="检测包不存在")
         if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
             raise HTTPException(status_code=400, detail="检测包不可用")
+        ensure_pack_customer_available(conn, pack)
         enterprise_id = req.enterpriseId or pack["enterprise_id"]
         if req.boilerId:
             boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (req.boilerId,)).fetchone())
@@ -2767,6 +3131,7 @@ def create_inspection(req: InspectionCreateReq, authorization: Optional[str] = H
         pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE id = ?", (req.materialPackId,)).fetchone())
         if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
+        ensure_pack_customer_available(conn, pack)
         if pack["status"] != "activated":
             raise HTTPException(status_code=400, detail="检测包尚未激活或已不可用")
         if int(pack["enterprise_id"]) != int(boiler["enterprise_id"]):

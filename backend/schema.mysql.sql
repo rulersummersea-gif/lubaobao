@@ -47,11 +47,43 @@ CREATE TABLE IF NOT EXISTS material_packs (
   printed_at DATETIME NULL,
   created_by BIGINT NULL,
   created_by_name VARCHAR(64) NULL,
+  customer_period_id BIGINT NULL,
   created_at DATETIME NOT NULL,
   activated_at DATETIME NULL,
   KEY idx_packs_enterprise (enterprise_id),
   KEY idx_packs_boiler (boiler_id),
   UNIQUE KEY uq_material_packs_qr_token (qr_token)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS customer_accounts (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  enterprise_id BIGINT NOT NULL UNIQUE,
+  account_type VARCHAR(20) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  current_period_id BIGINT NULL,
+  start_date VARCHAR(32) NOT NULL,
+  end_date VARCHAR(32) NOT NULL,
+  contact_name VARCHAR(64) NULL,
+  contact_phone VARCHAR(32) NULL,
+  notes VARCHAR(512) NULL,
+  created_by BIGINT NULL,
+  created_by_name VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  KEY idx_customer_accounts_status (status, account_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS customer_account_periods (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  customer_id BIGINT NOT NULL,
+  account_type VARCHAR(20) NOT NULL,
+  start_date VARCHAR(32) NOT NULL,
+  end_date VARCHAR(32) NOT NULL,
+  pack_count INT NOT NULL,
+  created_by BIGINT NULL,
+  created_by_name VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_customer_periods_customer (customer_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS users (

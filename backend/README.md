@@ -118,6 +118,11 @@ curl http://127.0.0.1:18080/material-packs?enterpriseId=1
 GET  /health
 POST /auth/wx-login
 GET  /boilers
+GET  /customers
+POST /customers
+POST /customers/{id}/renew
+GET  /customers/{id}/periods
+PATCH /customers/{id}/status
 GET  /material-packs
 POST /material-packs
 POST /material-packs/batch
