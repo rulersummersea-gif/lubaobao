@@ -238,6 +238,11 @@
 ```
 小程序扫码进入后用场景令牌还原材料包。未登录用户先登录并保留该令牌；老用户确认绑定当前锅炉，新用户继续登记企业和锅炉。
 
+### GET `/material-pack-binding-events`
+后台查询材料包扫码与绑定审计流水。支持 `enterpriseId`、`eventType`、`status`、`keyword` 和 `limit` 筛选；企业管理员只能查看本企业记录。
+
+事件动作包括扫码识别、首次绑定、更换材料包、解除绑定和作废材料包；记录材料包、用户、企业、锅炉、来源、结果、说明与发生时间。未知随机二维码不写入审计表。
+
 ### POST `/material-packs/activate`
 ```json
 { "code": "PACK-001", "enterpriseId": 1, "boilerId": 1001 }

@@ -138,6 +138,7 @@ POST /material-packs/{id}/mark-printed
 POST /material-packs/verify
 POST /material-packs/resolve-scene
 POST /material-packs/activate
+GET  /material-pack-binding-events
 POST /inspections
 POST /inspections/upload-image
 POST /inspections/recognize

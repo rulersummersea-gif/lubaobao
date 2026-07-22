@@ -97,6 +97,7 @@
       <div class="nav-group">
         <div class="nav-label">履约资产</div>
         <button data-tab="packs">材料包管理</button>
+        <button data-tab="packBindings">扫码与绑定记录</button>
         <button data-tab="boilers">锅炉档案</button>
       </div>
       <div class="nav-group">
@@ -267,6 +268,34 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section id="packBindings" class="tab">
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">材料包扫码与绑定记录</h2>
+          <select id="bindingEnterpriseFilter"></select>
+          <select id="bindingEventFilter">
+            <option value="">全部动作</option>
+            <option value="scan">扫码识别</option>
+            <option value="bind">首次绑定</option>
+            <option value="replace">更换材料包</option>
+            <option value="unbind">解除绑定</option>
+            <option value="invalidate">作废材料包</option>
+          </select>
+          <select id="bindingStatusFilter">
+            <option value="">全部结果</option>
+            <option value="success">成功</option>
+            <option value="failed">失败</option>
+          </select>
+          <input id="bindingSearch" placeholder="搜索材料包/用户/企业/锅炉">
+          <button class="secondary" id="loadBindingEventsBtn">刷新记录</button>
+        </div>
+        <table>
+          <thead><tr><th>时间</th><th>材料包</th><th>动作</th><th>结果</th><th>用户</th><th>企业与锅炉</th><th>来源</th><th>说明</th></tr></thead>
+          <tbody id="bindingEventsBody"></tbody>
+        </table>
       </div>
     </section>
 
@@ -442,6 +471,7 @@ const state = {
   packQr: null,
   customers: [],
   orders: [],
+  bindingEvents: [],
   currentTab: 'dashboard',
 };
 const TAB_META = {
@@ -450,6 +480,7 @@ const TAB_META = {
   subscriptionOrders: ['订阅与收款', '创建订阅订单、确认收款并安排季度发包'],
   enterprises: ['企业档案', '维护客户企业主体信息'],
   packs: ['材料包管理', '办理材料包入库、分配、绑定和二维码打印'],
+  packBindings: ['扫码与绑定记录', '追踪材料包扫码、绑定、换包、解绑和作废过程'],
   boilers: ['锅炉档案', '维护客户锅炉及设备基础信息'],
   inspections: ['巡检记录', '查看炉水检测结果和现场图片'],
   retests: ['服务处置', '跟进异常结果、专业意见和复测情况'],
@@ -563,6 +594,10 @@ function syncEnterpriseSelects() {
     select.innerHTML = state.enterprises.filter((e) => e.status === 'active').map((e) => `<option value="${e.id}">${esc(e.name)}（${e.id}）</option>`).join('');
     if ([...select.options].some((option) => option.value === current)) select.value = current;
   });
+  const bindingSelect = $('bindingEnterpriseFilter');
+  const bindingCurrent = bindingSelect.value;
+  bindingSelect.innerHTML = '<option value="">全部企业</option>' + state.enterprises.map((e) => `<option value="${e.id}">${esc(e.name)}（${e.id}）</option>`).join('');
+  if ([...bindingSelect.options].some((option) => option.value === bindingCurrent)) bindingSelect.value = bindingCurrent;
 }
 function customerTypeText(type) { return type === 'subscription' ? '订阅账户' : '试用账户'; }
 function customerStatusText(status) { return ({ active: '服务中', pending_payment: '待付款', expired: '已到期', disabled: '已停用' })[status] || status || '-'; }
@@ -756,6 +791,33 @@ async function setEnterpriseStatus(id, status) {
   await api('/enterprises/' + id + '/status', { method: 'PATCH', body: JSON.stringify({ status }) });
   await loadEnterprises();
   await loadDashboard();
+}
+function bindingEventText(type) {
+  return ({ scan: '扫码识别', bind: '首次绑定', replace: '更换材料包', unbind: '解除绑定', invalidate: '作废材料包' })[type] || type || '-';
+}
+function bindingSourceText(source) {
+  return ({ miniprogram_code: '微信小程序码', ordinary_qr: '普通二维码', mini_program: '小程序', admin: '后台', api: '接口' })[source] || source || '-';
+}
+async function loadBindingEvents() {
+  const params = [];
+  if ($('bindingEnterpriseFilter').value) params.push('enterpriseId=' + encodeURIComponent($('bindingEnterpriseFilter').value));
+  if ($('bindingEventFilter').value) params.push('eventType=' + encodeURIComponent($('bindingEventFilter').value));
+  if ($('bindingStatusFilter').value) params.push('status=' + encodeURIComponent($('bindingStatusFilter').value));
+  if ($('bindingSearch').value.trim()) params.push('keyword=' + encodeURIComponent($('bindingSearch').value.trim()));
+  params.push('limit=300');
+  state.bindingEvents = await api('/material-pack-binding-events?' + params.join('&'));
+  $('bindingEventsBody').innerHTML = state.bindingEvents.map((item) => `
+    <tr>
+      <td class="nowrap">${esc(item.createdAt)}</td>
+      <td><b>${esc(item.packCode)}</b><div class="muted">ID ${item.materialPackId}</div></td>
+      <td>${esc(bindingEventText(item.eventType))}</td>
+      <td><span class="tag ${item.status === 'success' ? 'ok' : 'warn'}">${item.status === 'success' ? '成功' : '失败'}</span></td>
+      <td>${esc(item.userName || '-')}<div class="muted">${item.userId ? '用户 ID ' + item.userId : '未登录扫码'}</div></td>
+      <td>${esc(item.enterpriseName || '-')}<div class="muted">${esc(item.boilerName || '未绑定锅炉')}</div></td>
+      <td>${esc(bindingSourceText(item.source))}</td>
+      <td>${esc(item.detail || '-')}</td>
+    </tr>`).join('');
+  if (!state.bindingEvents.length) $('bindingEventsBody').innerHTML = '<tr><td colspan="8" class="empty">暂无扫码与绑定记录</td></tr>';
 }
 async function loadPacks() {
   const enterpriseId = $('packEnterpriseFilter').value || 1;
@@ -1196,6 +1258,10 @@ async function loadTab(id) {
     await loadEnterprises();
     return loadPacks();
   }
+  if (id === 'packBindings') {
+    await loadEnterprises();
+    return loadBindingEvents();
+  }
   if (id === 'boilers') {
     await loadEnterprises();
     return loadBoilers();
@@ -1236,6 +1302,11 @@ $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
 $('packEnterpriseFilter').onchange = () => loadPacks().catch(showDebug);
 $('packStatusFilter').onchange = () => renderPacks();
 $('packSearch').oninput = () => renderPacks();
+$('loadBindingEventsBtn').onclick = () => loadBindingEvents().catch(showDebug);
+$('bindingEnterpriseFilter').onchange = () => loadBindingEvents().catch(showDebug);
+$('bindingEventFilter').onchange = () => loadBindingEvents().catch(showDebug);
+$('bindingStatusFilter').onchange = () => loadBindingEvents().catch(showDebug);
+$('bindingSearch').onkeydown = (event) => { if (event.key === 'Enter') loadBindingEvents().catch(showDebug); };
 $('printPackQrBtn').onclick = () => printPackQr().catch(showDebug);
 $('downloadPackQrBtn').onclick = () => downloadPackQr();
 $('closePackQrBtn').onclick = () => closePackQr();

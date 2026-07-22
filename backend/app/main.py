@@ -38,7 +38,7 @@ WX_CODE_ENV_VERSION = os.getenv("WX_CODE_ENV_VERSION", "release")
 PASSWORD_ITERATIONS = 200000
 WX_ACCESS_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
-app = FastAPI(title="Lubaobao API", version="0.9.0-miniprogram-code")
+app = FastAPI(title="Lubaobao API", version="0.10.0-binding-audit")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -546,6 +546,53 @@ def ensure_onboarding_schema(conn) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_user_pack_bindings_pack ON user_material_pack_bindings(material_pack_id)")
 
 
+def ensure_pack_binding_event_schema(conn) -> None:
+    if DB_DRIVER == "mysql":
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS material_pack_binding_events (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              material_pack_id BIGINT NOT NULL,
+              pack_code VARCHAR(64) NOT NULL,
+              user_id BIGINT NULL,
+              user_name VARCHAR(64) NULL,
+              enterprise_id BIGINT NULL,
+              boiler_id BIGINT NULL,
+              event_type VARCHAR(32) NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              source VARCHAR(32) NOT NULL,
+              detail VARCHAR(512) NULL,
+              created_at DATETIME NOT NULL,
+              KEY idx_pack_binding_events_pack (material_pack_id, id),
+              KEY idx_pack_binding_events_enterprise (enterprise_id, id),
+              KEY idx_pack_binding_events_user (user_id, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+    else:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS material_pack_binding_events (
+              id INTEGER PRIMARY KEY,
+              material_pack_id INTEGER NOT NULL,
+              pack_code TEXT NOT NULL,
+              user_id INTEGER,
+              user_name TEXT,
+              enterprise_id INTEGER,
+              boiler_id INTEGER,
+              event_type TEXT NOT NULL,
+              status TEXT NOT NULL,
+              source TEXT NOT NULL,
+              detail TEXT,
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_pack_binding_events_pack ON material_pack_binding_events(material_pack_id, id);
+            CREATE INDEX IF NOT EXISTS idx_pack_binding_events_enterprise ON material_pack_binding_events(enterprise_id, id);
+            CREATE INDEX IF NOT EXISTS idx_pack_binding_events_user ON material_pack_binding_events(user_id, id);
+            """
+        )
+
+
 def ensure_customer_schema(conn) -> None:
     if DB_DRIVER == "mysql":
         conn.executescript(
@@ -718,6 +765,7 @@ def ensure_schema_updates(conn) -> None:
     ensure_subscription_indexes(conn)
     ensure_pack_qr_index(conn)
     ensure_onboarding_schema(conn)
+    ensure_pack_binding_event_schema(conn)
     conn.execute(
         """
         UPDATE customer_account_periods cp
@@ -1345,7 +1393,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -1782,6 +1830,15 @@ def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str]
             raise HTTPException(status_code=400, detail="材料包已过期或不可用")
         ensure_pack_customer_available(conn, pack)
 
+        active_pack_binding = row_to_dict(
+            conn.execute(
+                "SELECT user_id FROM user_material_pack_bindings WHERE material_pack_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+                (pack["id"],),
+            ).fetchone()
+        )
+        if active_pack_binding and active_pack_binding["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=409, detail="该材料包已被其他用户绑定，请联系服务支持人员")
+
         previous = row_to_dict(
             conn.execute(
                 "SELECT * FROM user_material_pack_bindings WHERE user_id = ? ORDER BY id DESC LIMIT 1",
@@ -1863,6 +1920,17 @@ def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str]
         ).fetchone()
         user = user_response(user_row)
         enterprise = enterprise_response(enterprise_row)
+        record_pack_binding_event(
+            conn,
+            pack,
+            "replace" if previous else "bind",
+            "success",
+            "mini_program",
+            user=user,
+            enterprise_id=enterprise_id,
+            boiler_id=boiler["id"],
+            detail="更换材料包并绑定当前锅炉" if previous else "首次完成企业、锅炉和材料包绑定",
+        )
 
     return {
         "token": make_token(user),
@@ -2235,6 +2303,66 @@ def verified_pack_payload(pack: dict) -> dict:
             "type": pack["type"],
             "expireAt": pack["expire_at"],
         },
+    }
+
+
+def record_pack_binding_event(
+    conn,
+    pack: dict,
+    event_type: str,
+    status: str,
+    source: str,
+    user: Optional[dict] = None,
+    enterprise_id: Optional[int] = None,
+    boiler_id: Optional[int] = None,
+    detail: str = "",
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO material_pack_binding_events(
+          material_pack_id, pack_code, user_id, user_name, enterprise_id,
+          boiler_id, event_type, status, source, detail, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            pack["id"],
+            pack["code"],
+            user.get("id") if user else None,
+            (user.get("name") or user.get("username")) if user else None,
+            enterprise_id if enterprise_id is not None else pack.get("enterprise_id"),
+            boiler_id if boiler_id is not None else pack.get("boiler_id"),
+            event_type,
+            status,
+            source,
+            (detail or "")[:512] or None,
+            now(),
+        ),
+    )
+    return cur.lastrowid
+
+
+def record_pack_binding_event_now(pack: dict, event_type: str, status: str, source: str, detail: str = "") -> None:
+    with db() as conn:
+        record_pack_binding_event(conn, pack, event_type, status, source, detail=detail)
+
+
+def pack_binding_event_response(row) -> dict:
+    event = row_to_dict(row)
+    return {
+        "id": event["id"],
+        "materialPackId": event["material_pack_id"],
+        "packCode": event["pack_code"],
+        "userId": event.get("user_id"),
+        "userName": event.get("user_name") or "",
+        "enterpriseId": event.get("enterprise_id"),
+        "enterpriseName": event.get("enterprise_name") or "",
+        "boilerId": event.get("boiler_id"),
+        "boilerName": event.get("boiler_name") or "",
+        "eventType": event["event_type"],
+        "status": event["status"],
+        "source": event["source"],
+        "detail": event.get("detail") or "",
+        "createdAt": str(event["created_at"]).replace("T", " ")[:19],
     }
 
 
@@ -2790,6 +2918,53 @@ def list_packs(enterpriseId: int = 1):
         return [material_pack_response(row) for row in rows]
 
 
+@app.get("/material-pack-binding-events")
+def list_pack_binding_events(
+    enterpriseId: Optional[int] = None,
+    eventType: str = "",
+    status: str = "",
+    keyword: str = "",
+    limit: int = 200,
+    authorization: Optional[str] = Header(None),
+):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    if current_user["role"] == "enterprise_admin":
+        enterpriseId = current_user["enterpriseId"]
+    elif enterpriseId is not None:
+        ensure_enterprise_scope(current_user, enterpriseId)
+    filters = []
+    params = []
+    if enterpriseId is not None:
+        filters.append("ev.enterprise_id = ?")
+        params.append(enterpriseId)
+    if eventType:
+        filters.append("ev.event_type = ?")
+        params.append(eventType)
+    if status:
+        filters.append("ev.status = ?")
+        params.append(status)
+    if keyword.strip():
+        filters.append("(ev.pack_code LIKE ? OR ev.user_name LIKE ? OR e.name LIKE ? OR b.name LIKE ?)")
+        pattern = f"%{keyword.strip()}%"
+        params.extend([pattern, pattern, pattern, pattern])
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+    params.append(max(1, min(limit, 500)))
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT ev.*, e.name AS enterprise_name, b.name AS boiler_name
+            FROM material_pack_binding_events ev
+            LEFT JOIN enterprises e ON e.id = ev.enterprise_id
+            LEFT JOIN boilers b ON b.id = ev.boiler_id
+            {where_clause}
+            ORDER BY ev.id DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        )
+        return [pack_binding_event_response(row) for row in rows]
+
+
 @app.post("/material-packs")
 def create_pack(req: PackCreateReq, authorization: Optional[str] = Header(None)):
     current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
@@ -2909,6 +3084,7 @@ def mark_pack_printed(pack_id: int, authorization: Optional[str] = Header(None))
 
 @app.post("/material-packs/verify")
 def verify_pack(req: PackVerifyReq):
+    availability_error = None
     with db() as conn:
         pack = row_to_dict(
             conn.execute(
@@ -2922,13 +3098,22 @@ def verify_pack(req: PackVerifyReq):
             ).fetchone()
         )
         if pack:
-            ensure_pack_customer_available(conn, pack)
+            try:
+                ensure_pack_customer_available(conn, pack)
+            except HTTPException as exc:
+                availability_error = exc
     if not pack:
         raise HTTPException(status_code=404, detail="检测包不存在")
+    if availability_error:
+        record_pack_binding_event_now(pack, "scan", "failed", "ordinary_qr", str(availability_error.detail))
+        raise availability_error
     if req.qrToken and pack.get("qr_token") and not hmac.compare_digest(req.qrToken, pack["qr_token"]):
+        record_pack_binding_event_now(pack, "scan", "failed", "ordinary_qr", "材料包二维码令牌不匹配")
         raise HTTPException(status_code=400, detail="材料包二维码无效")
     if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
+        record_pack_binding_event_now(pack, "scan", "failed", "ordinary_qr", "材料包已过期或不可用")
         raise HTTPException(status_code=400, detail="检测包不可用")
+    record_pack_binding_event_now(pack, "scan", "success", "ordinary_qr", "材料包编码校验通过")
     return verified_pack_payload(pack)
 
 
@@ -2937,6 +3122,7 @@ def resolve_pack_scene(req: PackSceneReq):
     scene = urllib.parse.unquote((req.scene or "").strip())
     if not scene or len(scene) > 32:
         raise HTTPException(status_code=400, detail="材料包场景码无效")
+    availability_error = None
     with db() as conn:
         pack = row_to_dict(
             conn.execute(
@@ -2950,11 +3136,19 @@ def resolve_pack_scene(req: PackSceneReq):
             ).fetchone()
         )
         if pack:
-            ensure_pack_customer_available(conn, pack)
+            try:
+                ensure_pack_customer_available(conn, pack)
+            except HTTPException as exc:
+                availability_error = exc
     if not pack:
         raise HTTPException(status_code=404, detail="材料包场景码不存在")
+    if availability_error:
+        record_pack_binding_event_now(pack, "scan", "failed", "miniprogram_code", str(availability_error.detail))
+        raise availability_error
     if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
+        record_pack_binding_event_now(pack, "scan", "failed", "miniprogram_code", "材料包已过期或不可用")
         raise HTTPException(status_code=400, detail="检测包不可用")
+    record_pack_binding_event_now(pack, "scan", "success", "miniprogram_code", "小程序码场景解析成功")
     return verified_pack_payload(pack)
 
 
@@ -2983,6 +3177,16 @@ def activate_pack(req: PackActivateReq):
             (req.boilerId, enterprise_id, now(), req.code),
         )
         updated = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE code = ?", (req.code,)).fetchone())
+        record_pack_binding_event(
+            conn,
+            updated,
+            "bind",
+            "success",
+            "api",
+            enterprise_id=updated.get("enterprise_id"),
+            boiler_id=updated.get("boiler_id"),
+            detail="材料包激活并绑定锅炉" if updated.get("boiler_id") else "材料包激活",
+        )
     return {
         "id": updated["id"],
         "code": updated["code"],
@@ -2996,7 +3200,7 @@ def activate_pack(req: PackActivateReq):
 def invalidate_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
     current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
     with db() as conn:
-        pack = row_to_dict(conn.execute("SELECT id, enterprise_id FROM material_packs WHERE code = ?", (req.code,)).fetchone())
+        pack = row_to_dict(conn.execute("SELECT id, code, enterprise_id, boiler_id FROM material_packs WHERE code = ?", (req.code,)).fetchone())
         if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
         ensure_enterprise_scope(current_user, pack["enterprise_id"])
@@ -3005,6 +3209,7 @@ def invalidate_pack(req: PackCodeReq, authorization: Optional[str] = Header(None
             "UPDATE user_material_pack_bindings SET status = 'inactive', unbound_at = ? WHERE material_pack_id = ? AND status = 'active'",
             (now(), pack["id"]),
         )
+        record_pack_binding_event(conn, pack, "invalidate", "success", "admin", user=current_user, detail="后台作废材料包并结束有效绑定")
     return {"code": req.code, "status": "invalid"}
 
 
@@ -3012,7 +3217,7 @@ def invalidate_pack(req: PackCodeReq, authorization: Optional[str] = Header(None
 def unbind_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
     current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
     with db() as conn:
-        pack = row_to_dict(conn.execute("SELECT id, enterprise_id FROM material_packs WHERE code = ?", (req.code,)).fetchone())
+        pack = row_to_dict(conn.execute("SELECT id, code, enterprise_id, boiler_id FROM material_packs WHERE code = ?", (req.code,)).fetchone())
         if not pack:
             raise HTTPException(status_code=404, detail="检测包不存在")
         ensure_enterprise_scope(current_user, pack["enterprise_id"])
@@ -3024,6 +3229,7 @@ def unbind_pack(req: PackCodeReq, authorization: Optional[str] = Header(None)):
             "UPDATE user_material_pack_bindings SET status = 'inactive', unbound_at = ? WHERE material_pack_id = ? AND status = 'active'",
             (now(), pack["id"]),
         )
+        record_pack_binding_event(conn, pack, "unbind", "success", "admin", user=current_user, detail="后台解除材料包与锅炉绑定")
     return {"code": req.code, "status": "unactivated", "boilerId": None}
 
 
