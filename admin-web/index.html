@@ -7,14 +7,19 @@
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; font-family: Arial, "PingFang SC", sans-serif; background: #f5f7fb; color: #0f172a; }
-    .wrap { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
-    .side { background: #0f172a; color: #cbd5e1; padding: 18px 14px; }
+    .wrap { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+    .side { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: #0f172a; color: #cbd5e1; padding: 18px 14px; }
     .side h1 { margin: 0 0 8px; color: #fff; font-size: 22px; }
     .side .muted { color: #94a3b8; font-size: 13px; margin-bottom: 18px; }
-    .nav button { width: 100%; min-height: 44px; margin: 5px 0; border: 0; border-radius: 8px; background: #1e293b; color: #e2e8f0; text-align: left; padding: 0 12px; cursor: pointer; font-size: 15px; }
+    .nav-group { margin-top: 18px; }
+    .nav-group:first-child { margin-top: 0; }
+    .nav-label { padding: 0 10px 6px; color: #64748b; font-size: 12px; font-weight: 700; }
+    .nav button { width: 100%; min-height: 42px; margin: 3px 0; border: 0; border-radius: 6px; background: transparent; color: #cbd5e1; text-align: left; padding: 0 12px; cursor: pointer; font-size: 15px; }
+    .nav button:hover { background: #1e293b; color: #fff; }
     .nav button.active { background: #2563eb; color: #fff; }
-    .main { padding: 20px; }
+    .main { min-width: 0; padding: 20px; }
     .topbar, .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .card { overflow-x: auto; }
     .topbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
     .title { font-size: 22px; font-weight: 800; margin: 0; }
     .muted { color: #64748b; font-size: 13px; }
@@ -27,9 +32,9 @@
     button.secondary { background: #e2e8f0; color: #0f172a; }
     button.warn { background: #f59e0b; }
     button.danger { background: #dc2626; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; background: #fff; }
+    table { width: 100%; min-width: 860px; border-collapse: collapse; margin-top: 12px; background: #fff; }
     th, td { border-bottom: 1px solid #e2e8f0; padding: 10px; text-align: left; vertical-align: top; }
-    th { color: #475569; font-size: 13px; background: #f8fafc; }
+    th { color: #475569; font-size: 13px; white-space: nowrap; background: #f8fafc; }
     .tag { display: inline-block; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 700; background: #dbeafe; color: #1d4ed8; }
     .tag.ok { background: #dcfce7; color: #166534; }
     .tag.warn { background: #fef3c7; color: #92400e; }
@@ -54,7 +59,9 @@
     .tab.active { display: block; }
     @media (max-width: 900px) {
       .wrap { grid-template-columns: 1fr; }
-      .side { position: static; }
+      .side { position: static; height: auto; }
+      .nav { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+      .nav-group { margin-top: 12px; }
       .grid { grid-template-columns: 1fr 1fr; }
       .detail-grid, .image-box, .qr-panel { grid-template-columns: 1fr; }
     }
@@ -66,25 +73,44 @@
     <h1>炉保保后台</h1>
     <div class="muted" id="who">未登录</div>
     <div class="nav">
-      <button data-tab="dashboard" class="active">仪表盘</button>
-      <button data-tab="customers">客户管理</button>
-      <button data-tab="enterprises">企业管理</button>
-      <button data-tab="packs">材料包管理</button>
-      <button data-tab="boilers">锅炉管理</button>
-      <button data-tab="standards">检测标准</button>
-      <button data-tab="inspections">巡检记录</button>
-      <button data-tab="retests">复测任务</button>
-      <button data-tab="users">用户权限</button>
-      <button data-tab="reports">月报中心</button>
-      <button data-tab="debug">接口输出</button>
+      <div class="nav-group">
+        <div class="nav-label">工作台</div>
+        <button data-tab="dashboard" class="active">运营概览</button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">客户运营</div>
+        <button data-tab="customerAccounts">客户账户</button>
+        <button data-tab="subscriptionOrders">订阅与收款</button>
+        <button data-tab="enterprises">企业档案</button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">履约资产</div>
+        <button data-tab="packs">材料包管理</button>
+        <button data-tab="boilers">锅炉档案</button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">巡检服务</div>
+        <button data-tab="inspections">巡检记录</button>
+        <button data-tab="retests">服务处置</button>
+        <button data-tab="reports">月报中心</button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">规则配置</div>
+        <button data-tab="standards">检测标准</button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">系统管理</div>
+        <button data-tab="users">用户与权限</button>
+        <button data-tab="debug">接口诊断</button>
+      </div>
     </div>
   </aside>
 
   <main class="main">
     <div class="topbar">
       <div>
-        <p class="title">运营管理台</p>
-        <div class="muted">管理企业锅炉、材料包和巡检记录</div>
+        <p class="title" id="pageTitle">运营概览</p>
+        <div class="muted" id="pageSubtitle">查看客户、资产和巡检运行情况</div>
       </div>
       <div class="row">
         <input id="base" value="/api" style="width:220px">
@@ -105,7 +131,19 @@
       </div>
     </section>
 
-    <section id="customers" class="tab">
+    <section id="customerAccounts" class="tab">
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">客户账户</h2>
+          <select id="customerTypeFilter"><option value="">全部档位</option><option value="trial">试用账户</option><option value="subscription">订阅账户</option></select>
+          <input id="customerSearch" placeholder="搜索企业/联系人/电话">
+          <button class="secondary" id="loadCustomersBtn">刷新客户</button>
+        </div>
+        <table><thead><tr><th>客户企业</th><th>当前档位</th><th>服务期限</th><th>订单/周期</th><th>联系人</th><th>状态</th><th>操作</th></tr></thead><tbody id="customersBody"></tbody></table>
+      </div>
+    </section>
+
+    <section id="subscriptionOrders" class="tab">
       <div class="card">
         <h2 id="customerFormTitle">新建客户订阅订单</h2>
         <div class="row pack-form">
@@ -123,15 +161,6 @@
           <button id="createCustomerBtn">创建待付款订单</button>
           <button class="secondary" id="resetCustomerFormBtn">取消续费</button>
         </div>
-      </div>
-      <div class="card">
-        <div class="row">
-          <h2 style="margin-right:auto">客户账户</h2>
-          <select id="customerTypeFilter"><option value="">全部档位</option><option value="trial">试用账户</option><option value="subscription">订阅账户</option></select>
-          <input id="customerSearch" placeholder="搜索企业/联系人/电话">
-          <button class="secondary" id="loadCustomersBtn">刷新客户</button>
-        </div>
-        <table><thead><tr><th>客户企业</th><th>当前档位</th><th>服务期限</th><th>订单/周期</th><th>联系人</th><th>状态</th><th>操作</th></tr></thead><tbody id="customersBody"></tbody></table>
       </div>
       <div class="card">
         <div class="row">
@@ -399,6 +428,20 @@ const state = {
   customers: [],
   orders: [],
 };
+const TAB_META = {
+  dashboard: ['运营概览', '查看客户、资产和巡检运行情况'],
+  customerAccounts: ['客户账户', '管理试用客户、订阅客户和服务状态'],
+  subscriptionOrders: ['订阅与收款', '创建订阅订单、确认收款并安排季度发包'],
+  enterprises: ['企业档案', '维护客户企业主体信息'],
+  packs: ['材料包管理', '办理材料包入库、分配、绑定和二维码打印'],
+  boilers: ['锅炉档案', '维护客户锅炉及设备基础信息'],
+  inspections: ['巡检记录', '查看炉水检测结果和现场图片'],
+  retests: ['服务处置', '跟进异常结果、专业意见和复测情况'],
+  reports: ['月报中心', '汇总企业月度巡检结果'],
+  standards: ['检测标准', '维护炉水六项指标的判断标准'],
+  users: ['用户与权限', '管理后台账号、角色和企业权限'],
+  debug: ['接口诊断', '查看最近一次后台接口响应'],
+};
 
 function base() { return $('base').value.trim() || '/api'; }
 function showDebug(v) { $('debugOut').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2); }
@@ -437,8 +480,13 @@ function setWho() {
   $('who').textContent = state.user ? `${state.user.name || state.user.username} / ${state.user.role}` : '未登录';
 }
 function switchTab(id) {
+  if (!TAB_META[id]) id = 'dashboard';
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.id === id));
   document.querySelectorAll('.nav button').forEach((el) => el.classList.toggle('active', el.dataset.tab === id));
+  $('pageTitle').textContent = TAB_META[id][0];
+  $('pageSubtitle').textContent = TAB_META[id][1];
+  history.replaceState(null, '', '#' + id);
+  window.scrollTo({ top: 0 });
 }
 
 async function login() {
@@ -575,6 +623,7 @@ function prepareRenewCustomer(id) {
   $('customerPhone').value = customer.contactPhone || '';
   $('customerFormTitle').textContent = `为 ${customer.enterpriseName} 新建续费订单`;
   $('createCustomerBtn').textContent = '创建续费待付款订单';
+  switchTab('subscriptionOrders');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function resetCustomerForm() {
@@ -603,6 +652,7 @@ async function showCustomerPeriods(id) {
   $('customerPeriodsTitle').textContent = `${customer?.enterpriseName || '客户'} · 服务周期记录`;
   $('customerPeriodsBody').innerHTML = periods.map((period) => `<tr><td>${esc(period.orderNo || '-')}<div class="muted">第 ${period.periodNo} 期</div></td><td>${customerTypeText(period.accountType)}</td><td>${period.startDate} 至 ${period.endDate}</td><td>${period.allocatedPackCount} / ${period.packCount} 包</td><td>${tag(periodStatusText(period.status))}<div class="muted">${period.allocatedAt || '-'}</div></td><td>${period.status === 'pending_fulfillment' ? `<button onclick="allocatePeriodPacks(${period.id}, ${id})">分配材料包</button>` : '已完成'}</td></tr>`).join('');
   if (!periods.length) $('customerPeriodsBody').innerHTML = '<tr><td colspan="6" class="empty">付款确认后才会生成服务周期和发包任务</td></tr>';
+  switchTab('subscriptionOrders');
   $('customerPeriods').style.display = 'block';
 }
 async function allocatePeriodPacks(periodId, customerId) {
@@ -1106,7 +1156,7 @@ async function refreshAll() {
   await Promise.all([loadCustomers(), loadOrders(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
 }
 
-document.querySelectorAll('.nav button').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
+document.querySelectorAll('.nav button[data-tab]').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
 $('loginBtn').onclick = () => login().catch(showDebug);
 $('refreshBtn').onclick = () => refreshAll().catch(showDebug);
 $('saveEnterpriseBtn').onclick = () => saveEnterprise().catch(showDebug);
@@ -1156,6 +1206,7 @@ resetUserForm();
 resetCustomerForm();
 $('customerStartDate').value = new Date().toISOString().slice(0, 10);
 $('customerAccountType').onchange();
+switchTab((location.hash || '').slice(1));
 refreshAll().catch(showDebug);
 </script>
 </body>
