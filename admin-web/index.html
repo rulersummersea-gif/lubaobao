@@ -21,6 +21,8 @@
     .topbar, .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
     .card { overflow-x: auto; }
     .topbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .auth-panel { justify-content: flex-end; }
+    .session-user { min-height: 40px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; font-weight: 700; }
     .title { font-size: 22px; font-weight: 800; margin: 0; }
     .muted { color: #64748b; font-size: 13px; }
     .grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; }
@@ -57,11 +59,20 @@
     pre { white-space: pre-wrap; word-break: break-word; background: #0b1020; color: #dbeafe; padding: 12px; border-radius: 8px; max-height: 360px; overflow: auto; }
     .tab { display: none; }
     .tab.active { display: block; }
-    @media (max-width: 900px) {
+    @media (max-width: 720px) {
       .wrap { grid-template-columns: 1fr; }
-      .side { position: static; height: auto; }
-      .nav { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
-      .nav-group { margin-top: 12px; }
+      .side { position: sticky; z-index: 10; height: auto; padding: 10px 12px; }
+      .side h1 { font-size: 18px; }
+      .side .muted { margin-bottom: 10px; }
+      .nav { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+      .nav::-webkit-scrollbar { height: 4px; }
+      .nav::-webkit-scrollbar-thumb { border-radius: 4px; background: #475569; }
+      .nav-group { display: flex; flex: 0 0 auto; gap: 4px; margin-top: 0; }
+      .nav-label { display: none; }
+      .nav button { width: auto; white-space: nowrap; padding: 0 11px; }
+      .main { padding: 12px; }
+      .topbar { align-items: stretch; flex-direction: column; }
+      .auth-panel { justify-content: flex-start; }
       .grid { grid-template-columns: 1fr 1fr; }
       .detail-grid, .image-box, .qr-panel { grid-template-columns: 1fr; }
     }
@@ -112,12 +123,16 @@
         <p class="title" id="pageTitle">运营概览</p>
         <div class="muted" id="pageSubtitle">查看客户、资产和巡检运行情况</div>
       </div>
-      <div class="row">
-        <input id="base" value="/api" style="width:220px">
-        <input id="username" value="admin" placeholder="用户名">
-        <input id="password" value="Admin@123" type="password" placeholder="密码">
+      <input id="base" value="/api" type="hidden">
+      <div class="row auth-panel" id="loginControls">
+        <input id="username" value="admin" autocomplete="username" placeholder="用户名">
+        <input id="password" type="password" autocomplete="current-password" placeholder="密码">
         <button id="loginBtn">登录</button>
+      </div>
+      <div class="row auth-panel" id="sessionControls" style="display:none">
+        <span class="session-user" id="sessionUser">-</span>
         <button class="secondary" id="refreshBtn">刷新</button>
+        <button class="secondary" id="logoutBtn">退出</button>
       </div>
     </div>
 
@@ -427,6 +442,7 @@ const state = {
   packQr: null,
   customers: [],
   orders: [],
+  currentTab: 'dashboard',
 };
 const TAB_META = {
   dashboard: ['运营概览', '查看客户、资产和巡检运行情况'],
@@ -451,6 +467,7 @@ async function api(path, options = {}) {
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { data = text; }
+  if (res.status === 401 && path !== '/auth/admin-login') clearSession();
   if (!res.ok) throw data;
   showDebug(data);
   return data;
@@ -478,15 +495,32 @@ function inputNumber(id) {
 }
 function setWho() {
   $('who').textContent = state.user ? `${state.user.name || state.user.username} / ${state.user.role}` : '未登录';
+  $('loginControls').style.display = state.user ? 'none' : 'flex';
+  $('sessionControls').style.display = state.user ? 'flex' : 'none';
+  $('sessionUser').textContent = state.user ? (state.user.name || state.user.username) : '-';
 }
-function switchTab(id) {
+function clearSession() {
+  state.token = '';
+  state.user = null;
+  localStorage.removeItem('LB_ADMIN_TOKEN');
+  localStorage.removeItem('LB_ADMIN_USER');
+  setWho();
+}
+function logout() {
+  clearSession();
+  location.hash = '#dashboard';
+  location.reload();
+}
+function switchTab(id, shouldLoad = true) {
   if (!TAB_META[id]) id = 'dashboard';
+  state.currentTab = id;
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.id === id));
   document.querySelectorAll('.nav button').forEach((el) => el.classList.toggle('active', el.dataset.tab === id));
   $('pageTitle').textContent = TAB_META[id][0];
   $('pageSubtitle').textContent = TAB_META[id][1];
   history.replaceState(null, '', '#' + id);
   window.scrollTo({ top: 0 });
+  if (state.token && shouldLoad) loadTab(id).catch(showDebug);
 }
 
 async function login() {
@@ -496,7 +530,7 @@ async function login() {
   localStorage.setItem('LB_ADMIN_TOKEN', state.token);
   localStorage.setItem('LB_ADMIN_USER', JSON.stringify(state.user));
   setWho();
-  await refreshAll();
+  await loadTab(state.currentTab);
 }
 async function loadDashboard() {
   const root = await api('/');
@@ -1150,15 +1184,35 @@ async function loadReport() {
   const data = await api(`/reports/monthly?enterpriseId=${$('reportEnterprise').value || 1}&month=${encodeURIComponent($('reportMonth').value || '2026-07')}`);
   $('reportOut').textContent = JSON.stringify(data, null, 2);
 }
-async function refreshAll() {
-  await loadDashboard();
-  await loadEnterprises();
-  await Promise.all([loadCustomers(), loadOrders(), loadPacks(), loadBoilers(), loadStandards(), loadInspections(), loadRetestTasks(), loadUsers(), loadReport()]);
+async function loadTab(id) {
+  if (id === 'dashboard') return loadDashboard();
+  if (id === 'customerAccounts') return loadCustomers();
+  if (id === 'subscriptionOrders') {
+    await loadEnterprises();
+    return Promise.all([loadCustomers(), loadOrders()]);
+  }
+  if (id === 'enterprises') return loadEnterprises();
+  if (id === 'packs') {
+    await loadEnterprises();
+    return loadPacks();
+  }
+  if (id === 'boilers') {
+    await loadEnterprises();
+    return loadBoilers();
+  }
+  if (id === 'standards') return loadStandards();
+  if (id === 'inspections') return loadInspections();
+  if (id === 'retests') return loadRetestTasks();
+  if (id === 'users') return loadUsers();
+  if (id === 'reports') return loadReport();
+  return Promise.resolve();
 }
 
 document.querySelectorAll('.nav button[data-tab]').forEach((btn) => btn.onclick = () => switchTab(btn.dataset.tab));
 $('loginBtn').onclick = () => login().catch(showDebug);
-$('refreshBtn').onclick = () => refreshAll().catch(showDebug);
+$('password').onkeydown = (event) => { if (event.key === 'Enter') login().catch(showDebug); };
+$('refreshBtn').onclick = () => loadTab(state.currentTab).catch(showDebug);
+$('logoutBtn').onclick = () => logout();
 $('saveEnterpriseBtn').onclick = () => saveEnterprise().catch(showDebug);
 $('resetEnterpriseFormBtn').onclick = () => resetEnterpriseForm();
 $('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
@@ -1206,8 +1260,8 @@ resetUserForm();
 resetCustomerForm();
 $('customerStartDate').value = new Date().toISOString().slice(0, 10);
 $('customerAccountType').onchange();
-switchTab((location.hash || '').slice(1));
-refreshAll().catch(showDebug);
+switchTab((location.hash || '').slice(1), false);
+if (state.token) loadTab(state.currentTab).catch(showDebug);
 </script>
 </body>
 </html>
