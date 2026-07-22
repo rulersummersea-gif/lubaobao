@@ -217,6 +217,12 @@
 ### GET `/material-packs/{id}/qr.png`
 返回可下载、打印的 PNG 二维码。
 
+### GET `/material-packs/{id}/mini-code`
+返回小程序码生成状态、入口页面、场景码和微信版本。配置 `WX_APPID`、`WX_APPSECRET` 后 `codeType=miniprogram`；未配置时返回 `fallback_qr`。
+
+### GET `/material-packs/{id}/mini-code.png`
+返回可打印的微信小程序码。正式码扫描后直达材料包绑定页；未配置微信凭证时返回普通二维码用于灰测。
+
 ### POST `/material-packs/{id}/mark-printed`
 记录二维码最近打印时间。
 
@@ -225,6 +231,12 @@
 { "code": "PACK-001", "qrToken": "二维码中的令牌，可选" }
 ```
 校验成功后返回材料包的 `boilerId`、`boilerName`、`status` 和有效期，巡检端据此确认材料包与当前锅炉一致。
+
+### POST `/material-packs/resolve-scene`
+```json
+{ "scene": "小程序码中的场景令牌" }
+```
+小程序扫码进入后用场景令牌还原材料包。未登录用户先登录并保留该令牌；老用户确认绑定当前锅炉，新用户继续登记企业和锅炉。
 
 ### POST `/material-packs/activate`
 ```json

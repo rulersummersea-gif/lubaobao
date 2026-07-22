@@ -15,6 +15,7 @@
       </view>
       <view class="sub">有效期：{{pack.expireAt || '未设置'}}</view>
       <view wx:if="{{pack.boilerName}}" class="sub">绑定锅炉：{{pack.boilerName}}</view>
+      <view wx:elif="{{currentBoilerName && !needsRegistration}}" class="sub">将绑定当前锅炉：{{currentBoilerName}}</view>
     </view>
   </view>
 

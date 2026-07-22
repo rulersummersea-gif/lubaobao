@@ -7,7 +7,13 @@ const { setToken } = require('../../utils/auth')
 const ui = require('../../utils/ui')
 
 Page({
-  data: { submitting: false, envKey: config.getEnvKey(), canUseLocal: config.getEnvKey() !== 'prod' },
+  data: { submitting: false, envKey: config.getEnvKey(), canUseLocal: config.getEnvKey() !== 'prod', scene: '' },
+
+  onLoad(options = {}) {
+    let scene = ''
+    try { scene = decodeURIComponent(options.scene || '') } catch (e) { scene = options.scene || '' }
+    this.setData({ scene })
+  },
 
   useLocalEnv() {
     config.setEnv('local')
@@ -39,7 +45,10 @@ Page({
       app.globalData.isLoggedIn = true
       ui.hideLoading()
       ui.success('登录成功')
-      if (res.onboarding && res.onboarding.required) {
+      if (this.data.scene) {
+        const scene = encodeURIComponent(this.data.scene)
+        setTimeout(() => wx.reLaunch({ url: `/pages/onboarding/onboarding?reason=scan_code&scene=${scene}` }), 200)
+      } else if (res.onboarding && res.onboarding.required) {
         const reason = encodeURIComponent(res.onboarding.reason || 'first_login')
         setTimeout(() => wx.reLaunch({ url: `/pages/onboarding/onboarding?reason=${reason}` }), 200)
       } else {

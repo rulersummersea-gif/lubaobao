@@ -13,6 +13,7 @@ function request({ url, method = 'GET', data = {} }) {
       '/boilers': () => mock.getBoilers(),
       '/boilers/create': () => mock.createBoiler(data),
       '/material-packs/verify': () => mock.verifyMaterialPack(data.code),
+      '/material-packs/resolve-scene': () => mock.verifyMaterialPack('PACK-001'),
       '/material-packs/activate': () => mock.activateMaterialPack(data),
       '/inspections/create': () => mock.createInspection(data),
       '/inspections/recognize': () => mock.recognizeInspection(data),

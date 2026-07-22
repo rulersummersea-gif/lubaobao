@@ -132,8 +132,11 @@ POST /material-packs
 POST /material-packs/batch
 GET  /material-packs/{id}/qr
 GET  /material-packs/{id}/qr.png
+GET  /material-packs/{id}/mini-code
+GET  /material-packs/{id}/mini-code.png
 POST /material-packs/{id}/mark-printed
 POST /material-packs/verify
+POST /material-packs/resolve-scene
 POST /material-packs/activate
 POST /inspections
 POST /inspections/upload-image
@@ -145,4 +148,4 @@ GET  /records/{id}
 GET  /reports/monthly
 ```
 
-正式微信登录需配置环境变量 `WX_APPID` 和 `WX_APPSECRET`。未配置时仅使用本地灰测账号；配置后后端通过微信登录凭证取得 `openid`，再映射为平台内部用户 ID。
+正式微信登录及小程序码需配置环境变量 `WX_APPID` 和 `WX_APPSECRET`。小程序码默认进入 `pages/onboarding/onboarding`，可通过 `MINIPROGRAM_BIND_PAGE` 调整；`WX_CODE_ENV_VERSION` 支持 `release`、`trial`、`develop`。未配置微信凭证时，后台生成普通二维码供本地灰测；配置后生成可直接打开小程序绑定页的正式小程序码。

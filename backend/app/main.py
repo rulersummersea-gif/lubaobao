@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import sqlite3
+import time
 import urllib.parse
 import urllib.request
 from calendar import monthrange
@@ -32,9 +33,12 @@ AUTH_SECRET = os.getenv("AUTH_SECRET", "dev-secret-change-me")
 WX_APPID = os.getenv("WX_APPID", "")
 WX_APPSECRET = os.getenv("WX_APPSECRET", "")
 PACK_QR_BASE_URL = os.getenv("PACK_QR_BASE_URL", "https://mp.lubaobao.cn/bind")
+MINIPROGRAM_BIND_PAGE = os.getenv("MINIPROGRAM_BIND_PAGE", "pages/onboarding/onboarding")
+WX_CODE_ENV_VERSION = os.getenv("WX_CODE_ENV_VERSION", "release")
 PASSWORD_ITERATIONS = 200000
+WX_ACCESS_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
-app = FastAPI(title="Lubaobao API", version="0.8.0-subscription-billing")
+app = FastAPI(title="Lubaobao API", version="0.9.0-miniprogram-code")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1277,6 +1281,10 @@ class PackVerifyReq(BaseModel):
     qrToken: Optional[str] = None
 
 
+class PackSceneReq(BaseModel):
+    scene: str
+
+
 class PackActivateReq(BaseModel):
     code: str
     boilerId: Optional[int] = None
@@ -1337,7 +1345,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "pack-inventory", "pack-qr", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -1639,6 +1647,57 @@ def resolve_wx_openid(code: str) -> Optional[str]:
     if payload.get("errcode") or not payload.get("openid"):
         raise HTTPException(status_code=401, detail=payload.get("errmsg") or "微信登录凭证无效")
     return payload["openid"]
+
+
+def get_wx_access_token() -> str:
+    if not WX_APPID or not WX_APPSECRET:
+        raise HTTPException(status_code=503, detail="未配置微信小程序 AppID 和 AppSecret")
+    if WX_ACCESS_TOKEN_CACHE["token"] and WX_ACCESS_TOKEN_CACHE["expires_at"] > time.time() + 60:
+        return WX_ACCESS_TOKEN_CACHE["token"]
+    query = urllib.parse.urlencode(
+        {"grant_type": "client_credential", "appid": WX_APPID, "secret": WX_APPSECRET}
+    )
+    try:
+        with urllib.request.urlopen(f"https://api.weixin.qq.com/cgi-bin/token?{query}", timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="微信 access_token 获取失败") from exc
+    if not payload.get("access_token"):
+        raise HTTPException(status_code=502, detail=payload.get("errmsg") or "微信 access_token 获取失败")
+    WX_ACCESS_TOKEN_CACHE["token"] = payload["access_token"]
+    WX_ACCESS_TOKEN_CACHE["expires_at"] = time.time() + int(payload.get("expires_in") or 7200)
+    return payload["access_token"]
+
+
+def generate_wx_miniprogram_code(scene: str) -> bytes:
+    token = get_wx_access_token()
+    request = urllib.request.Request(
+        f"https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token={urllib.parse.quote(token)}",
+        data=json.dumps(
+            {
+                "scene": scene,
+                "page": MINIPROGRAM_BIND_PAGE,
+                "check_path": True,
+                "env_version": WX_CODE_ENV_VERSION,
+                "width": 430,
+            }
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            content = response.read()
+            content_type = response.headers.get("Content-Type", "")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="微信小程序码生成失败") from exc
+    if "json" in content_type or content.startswith(b"{"):
+        try:
+            payload = json.loads(content.decode("utf-8"))
+        except Exception:
+            payload = {}
+        raise HTTPException(status_code=502, detail=payload.get("errmsg") or "微信小程序码生成失败")
+    return content
 
 
 def get_wx_user(conn, code: str):
@@ -2148,6 +2207,35 @@ def pack_qr_payload(pack: dict) -> str:
     query = urllib.parse.urlencode({"packCode": pack["code"], "qrToken": pack["qr_token"]})
     separator = "&" if "?" in PACK_QR_BASE_URL else "?"
     return f"{PACK_QR_BASE_URL}{separator}{query}"
+
+
+def ensure_pack_qr_token(conn, pack: dict) -> str:
+    token = pack.get("qr_token") or ""
+    if not token or len(token) > 32:
+        token = secrets.token_urlsafe(24)
+        conn.execute(
+            "UPDATE material_packs SET qr_token = ?, qr_generated_at = ? WHERE id = ?",
+            (token, now(), pack["id"]),
+        )
+        pack["qr_token"] = token
+        pack["qr_generated_at"] = now()
+    return token
+
+
+def verified_pack_payload(pack: dict) -> dict:
+    return {
+        "valid": True,
+        "pack": {
+            "id": pack["id"],
+            "code": pack["code"],
+            "enterpriseId": pack["enterprise_id"],
+            "boilerId": pack["boiler_id"],
+            "boilerName": pack.get("boiler_name") or "",
+            "status": pack["status"],
+            "type": pack["type"],
+            "expireAt": pack["expire_at"],
+        },
+    }
 
 
 def material_pack_response(row) -> dict:
@@ -2736,9 +2824,7 @@ def get_pack_qr(pack_id: int, authorization: Optional[str] = Header(None)):
         if not pack:
             raise HTTPException(status_code=404, detail="材料包不存在")
         ensure_enterprise_scope(current_user, pack["enterprise_id"])
-        if not pack.get("qr_token"):
-            pack["qr_token"] = secrets.token_urlsafe(24)
-            conn.execute("UPDATE material_packs SET qr_token = ?, qr_generated_at = ? WHERE id = ?", (pack["qr_token"], now(), pack_id))
+        ensure_pack_qr_token(conn, pack)
     return {"packId": pack_id, "code": pack["code"], "qrPayload": pack_qr_payload(pack), "qrGeneratedAt": pack.get("qr_generated_at") or now()}
 
 
@@ -2750,14 +2836,62 @@ def get_pack_qr_png(pack_id: int, authorization: Optional[str] = Header(None)):
         if not pack:
             raise HTTPException(status_code=404, detail="材料包不存在")
         ensure_enterprise_scope(current_user, pack["enterprise_id"])
-        if not pack.get("qr_token"):
-            pack["qr_token"] = secrets.token_urlsafe(24)
-            conn.execute("UPDATE material_packs SET qr_token = ?, qr_generated_at = ? WHERE id = ?", (pack["qr_token"], now(), pack_id))
+        ensure_pack_qr_token(conn, pack)
     image = qrcode.make(pack_qr_payload(pack))
     output = io.BytesIO()
     image.save(output, format="PNG")
     output.seek(0)
     return StreamingResponse(output, media_type="image/png", headers={"Content-Disposition": f'inline; filename="{pack["code"]}.png"'})
+
+
+@app.get("/material-packs/{pack_id}/mini-code")
+def get_pack_mini_code(pack_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE id = ?", (pack_id,)).fetchone())
+        if not pack:
+            raise HTTPException(status_code=404, detail="材料包不存在")
+        ensure_enterprise_scope(current_user, pack["enterprise_id"])
+        scene = ensure_pack_qr_token(conn, pack)
+    ready = bool(WX_APPID and WX_APPSECRET)
+    return {
+        "packId": pack_id,
+        "code": pack["code"],
+        "codeType": "miniprogram" if ready else "fallback_qr",
+        "miniProgramReady": ready,
+        "page": MINIPROGRAM_BIND_PAGE,
+        "scene": scene,
+        "envVersion": WX_CODE_ENV_VERSION,
+        "message": "微信小程序码，扫码直达材料包绑定页" if ready else "未配置微信凭证，当前生成灰测普通二维码",
+    }
+
+
+@app.get("/material-packs/{pack_id}/mini-code.png")
+def get_pack_mini_code_png(pack_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        pack = row_to_dict(conn.execute("SELECT * FROM material_packs WHERE id = ?", (pack_id,)).fetchone())
+        if not pack:
+            raise HTTPException(status_code=404, detail="材料包不存在")
+        ensure_enterprise_scope(current_user, pack["enterprise_id"])
+        scene = ensure_pack_qr_token(conn, pack)
+    ready = bool(WX_APPID and WX_APPSECRET)
+    if ready:
+        content = generate_wx_miniprogram_code(scene)
+        output = io.BytesIO(content)
+    else:
+        image = qrcode.make(pack_qr_payload(pack))
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="{pack["code"]}.png"',
+            "X-Lubaobao-Code-Type": "miniprogram" if ready else "fallback-qr",
+        },
+    )
 
 
 @app.post("/material-packs/{pack_id}/mark-printed")
@@ -2795,19 +2929,33 @@ def verify_pack(req: PackVerifyReq):
         raise HTTPException(status_code=400, detail="材料包二维码无效")
     if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
         raise HTTPException(status_code=400, detail="检测包不可用")
-    return {
-        "valid": True,
-        "pack": {
-            "id": pack["id"],
-            "code": pack["code"],
-            "enterpriseId": pack["enterprise_id"],
-            "boilerId": pack["boiler_id"],
-            "boilerName": pack.get("boiler_name") or "",
-            "status": pack["status"],
-            "type": pack["type"],
-            "expireAt": pack["expire_at"],
-        },
-    }
+    return verified_pack_payload(pack)
+
+
+@app.post("/material-packs/resolve-scene")
+def resolve_pack_scene(req: PackSceneReq):
+    scene = urllib.parse.unquote((req.scene or "").strip())
+    if not scene or len(scene) > 32:
+        raise HTTPException(status_code=400, detail="材料包场景码无效")
+    with db() as conn:
+        pack = row_to_dict(
+            conn.execute(
+                """
+                SELECT p.*, b.name AS boiler_name
+                FROM material_packs p
+                LEFT JOIN boilers b ON b.id = p.boiler_id
+                WHERE p.qr_token = ?
+                """,
+                (scene,),
+            ).fetchone()
+        )
+        if pack:
+            ensure_pack_customer_available(conn, pack)
+    if not pack:
+        raise HTTPException(status_code=404, detail="材料包场景码不存在")
+    if pack["status"] in ("expired", "invalid", "exhausted") or pack_is_expired(pack.get("expire_at")):
+        raise HTTPException(status_code=400, detail="检测包不可用")
+    return verified_pack_payload(pack)
 
 
 @app.post("/material-packs/activate")

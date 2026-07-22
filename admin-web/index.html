@@ -758,21 +758,23 @@ async function invalidatePack(id) {
   await loadPacks();
 }
 async function showPackQr(id) {
-  const info = await api('/material-packs/' + id + '/qr');
-  const blob = await apiBlob('/material-packs/' + id + '/qr.png');
+  const info = await api('/material-packs/' + id + '/mini-code');
+  const blob = await apiBlob('/material-packs/' + id + '/mini-code.png');
   if (state.packQr?.url) URL.revokeObjectURL(state.packQr.url);
   const url = URL.createObjectURL(blob);
-  state.packQr = { id, code: info.code, payload: info.qrPayload, url };
+  state.packQr = { id, code: info.code, codeType: info.codeType, message: info.message, url };
   $('packQrImage').src = url;
   $('packQrCode').textContent = info.code;
-  $('packQrMeta').textContent = `扫码内容：${info.qrPayload}`;
+  $('packQrMeta').textContent = info.codeType === 'miniprogram'
+    ? `${info.message} · ${info.envVersion === 'release' ? '正式版' : info.envVersion}`
+    : `${info.message}；配置微信 AppID 与 AppSecret 后可生成正式小程序码`;
   $('packQrPanel').classList.add('active');
 }
 async function printPackQr() {
   if (!state.packQr) return;
   const printWindow = window.open('', '_blank');
   if (!printWindow) throw new Error('浏览器阻止了打印窗口，请允许弹出窗口');
-  printWindow.document.write(`<title>${esc(state.packQr.code)}</title><div style="font-family:Arial;text-align:center;padding:32px"><h2>${esc(state.packQr.code)}</h2><img src="${state.packQr.url}" style="width:320px;height:320px"><p>炉保保材料包</p></div>`);
+  printWindow.document.write(`<title>${esc(state.packQr.code)}</title><div style="font-family:Arial;text-align:center;padding:32px"><h2>${esc(state.packQr.code)}</h2><img src="${state.packQr.url}" style="width:320px;height:320px"><p>微信扫码进入炉保保</p></div>`);
   printWindow.document.close();
   printWindow.onload = () => printWindow.print();
   await api('/material-packs/' + state.packQr.id + '/mark-printed', { method: 'POST' });

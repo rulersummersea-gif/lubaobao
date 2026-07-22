@@ -5,6 +5,10 @@ function verifyMaterialPack(code) {
   return request({ url, method: 'POST', data: { code } })
 }
 
+function resolveMaterialPackScene(scene) {
+  return request({ url: '/material-packs/resolve-scene', method: 'POST', data: { scene } })
+}
+
 function getMaterialPacks(params = {}) {
   return request({ url: '/material-packs', method: 'GET', data: params })
 }
@@ -14,4 +18,4 @@ function activateMaterialPack(data) {
   return request({ url, method: 'POST', data })
 }
 
-module.exports = { verifyMaterialPack, getMaterialPacks, activateMaterialPack }
+module.exports = { verifyMaterialPack, resolveMaterialPackScene, getMaterialPacks, activateMaterialPack }

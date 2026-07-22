@@ -1,5 +1,5 @@
 const config = require('../../config/index')
-const { verifyMaterialPack } = require('../../api/material-pack')
+const { verifyMaterialPack, resolveMaterialPackScene } = require('../../api/material-pack')
 const { completeOnboarding } = require('../../api/auth')
 const { getState, setState } = require('../../store/app-state')
 const { setToken } = require('../../utils/auth')
@@ -24,6 +24,7 @@ Page({
     code: '',
     pack: null,
     needsRegistration: false,
+    currentBoilerName: '',
     userName: '',
     submitting: false,
     isLocal: config.getEnvKey() === 'local',
@@ -41,16 +42,30 @@ Page({
     }
   },
 
-  onLoad(options) {
+  onLoad(options = {}) {
     const reason = options.reason || 'first_login'
     const state = getState()
-    const reasonText = reason === 'pack_expired'
+    let scene = ''
+    try { scene = decodeURIComponent(options.scene || '') } catch (e) { scene = options.scene || '' }
+    if (scene && !state.token) {
+      wx.reLaunch({ url: `/pages/login/login?scene=${encodeURIComponent(scene)}` })
+      return
+    }
+    const reasonText = reason === 'scan_code'
+      ? '已识别材料包，请确认使用人和绑定信息。'
+      : reason === 'pack_expired'
       ? '当前材料包已经过期，请扫描新的材料包继续使用。'
       : reason === 'pack_invalid'
         ? '当前材料包已失效，请扫描新的材料包继续使用。'
         : '首次登录，请先扫描材料包完成企业用户和锅炉绑定。'
     const savedName = state.user && !['微信用户', '测试用户'].includes(state.user.name) ? state.user.name : ''
-    this.setData({ reason, reasonText, userName: savedName })
+    this.setData({
+      reason,
+      reasonText,
+      userName: savedName,
+      currentBoilerName: state.currentBoiler ? state.currentBoiler.name : ''
+    })
+    if (scene) this.loadPackByScene(scene)
   },
 
   onUserNameInput(e) {
@@ -117,11 +132,32 @@ Page({
       if (pack.status === 'expired' || pack.status === 'invalid' || pack.status === 'exhausted') {
         throw new Error('材料包已过期或不可用')
       }
-      this.setData({ code, pack, needsRegistration: !pack.boilerId })
+      const state = getState()
+      this.setData({ code, pack, needsRegistration: !pack.boilerId && !state.currentBoiler })
       ui.success('材料包有效')
     } catch (e) {
       this.setData({ code: '', pack: null, needsRegistration: false })
       ui.error(e.message || '材料包校验失败')
+    } finally {
+      ui.hideLoading()
+    }
+  },
+
+  async loadPackByScene(scene) {
+    try {
+      ui.showLoading('识别材料包')
+      const res = await resolveMaterialPackScene(scene)
+      const pack = res.pack || res
+      const state = getState()
+      this.setData({
+        code: pack.code,
+        pack,
+        needsRegistration: !pack.boilerId && !state.currentBoiler
+      })
+      ui.success('材料包已识别')
+    } catch (e) {
+      this.setData({ code: '', pack: null, needsRegistration: false })
+      ui.error(e.message || '材料包识别失败')
     } finally {
       ui.hideLoading()
     }

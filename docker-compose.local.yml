@@ -16,6 +16,8 @@ services:
       AUTH_SECRET: lubaobao-local-auth-secret
       WX_APPID: ${WX_APPID:-}
       WX_APPSECRET: ${WX_APPSECRET:-}
+      MINIPROGRAM_BIND_PAGE: ${MINIPROGRAM_BIND_PAGE:-pages/onboarding/onboarding}
+      WX_CODE_ENV_VERSION: ${WX_CODE_ENV_VERSION:-release}
       LUBAOBAO_UPLOAD_DIR: /data/uploads
     volumes:
       - lubaobao-local-uploads:/data/uploads
