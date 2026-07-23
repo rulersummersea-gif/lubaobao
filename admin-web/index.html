@@ -205,7 +205,10 @@
         <h2 id="customerFormTitle">新建客户订阅订单</h2>
         <div class="row pack-form">
           <input id="customerId" type="hidden">
-          <div class="field wide"><label for="customerEnterprise">客户企业</label><select id="customerEnterprise"></select></div>
+          <div class="field"><label for="customerEnterpriseMode">企业来源</label><select id="customerEnterpriseMode"><option value="existing">选择已有企业</option><option value="new">同时新建企业</option></select></div>
+          <div class="field wide" id="existingCustomerEnterpriseField"><label for="customerEnterprise">客户企业</label><select id="customerEnterprise"></select></div>
+          <div class="field wide" id="newCustomerEnterpriseNameField" style="display:none"><label for="newCustomerEnterpriseName">新企业名称</label><input id="newCustomerEnterpriseName" placeholder="请输入企业全称"></div>
+          <div class="field" id="newCustomerEnterpriseCodeField" style="display:none"><label for="newCustomerEnterpriseCode">企业编码</label><input id="newCustomerEnterpriseCode" placeholder="留空自动生成"></div>
           <div class="field"><label for="customerAccountType">账户档位</label><select id="customerAccountType"><option value="trial">试用账户 · 1包/1个月</option><option value="subscription">订阅账户 · 3包/3个月</option></select></div>
           <div class="field"><label for="customerTermQuarters">订阅季度数</label><input id="customerTermQuarters" type="number" min="1" max="8" value="1"></div>
           <div class="field"><label for="customerStartDate">计划生效日期</label><input id="customerStartDate" type="date"></div>
@@ -216,7 +219,7 @@
           <div class="field"><label for="customerPhone">联系电话</label><input id="customerPhone" placeholder="手机号或座机"></div>
           <div class="field wide"><label for="customerNotes">客户备注</label><input id="customerNotes" placeholder="销售单、服务约定等"></div>
           <button id="createCustomerBtn">创建待付款订单</button>
-          <button class="secondary" id="resetCustomerFormBtn">取消续费</button>
+          <button class="secondary" id="resetCustomerFormBtn">清空表单</button>
         </div>
       </div>
       <div class="card">
@@ -261,7 +264,7 @@
       </div>
       <div class="card">
         <h2>企业列表</h2>
-        <table><thead><tr><th>ID</th><th>企业名称</th><th>编码</th><th>状态</th><th>操作</th></tr></thead><tbody id="enterprisesBody"></tbody></table>
+        <table><thead><tr><th>ID</th><th>企业名称</th><th>编码</th><th>企业状态</th><th>客户账户</th><th>操作</th></tr></thead><tbody id="enterprisesBody"></tbody></table>
       </div>
     </section>
 
@@ -623,8 +626,12 @@ async function loadEnterprises() {
   $('enterprisesBody').innerHTML = enterprises.map((e) => `
     <tr>
       <td>${e.id}</td><td>${esc(e.name)}</td><td>${esc(e.code || '-')}</td><td>${tag(e.status)}</td>
+      <td>${e.customerId ? `${tag(customerStatusText(e.customerStatus))}<div class="muted">客户 ID ${e.customerId}</div>` : '<span class="muted">未开通</span>'}</td>
       <td>
         <button class="secondary" onclick="editEnterprise(${e.id})">编辑</button>
+        ${e.customerId
+          ? `<button onclick="showCustomerDetail(${e.customerId})">客户详情</button>`
+          : e.status === 'active' ? `<button onclick="prepareCustomerForEnterprise(${e.id})">开通服务</button>` : ''}
         ${e.status === 'active'
           ? `<button class="danger" onclick="setEnterpriseStatus(${e.id}, 'disabled')">停用</button>`
           : `<button class="secondary" onclick="setEnterpriseStatus(${e.id}, 'active')">启用</button>`}
@@ -749,26 +756,50 @@ function customerOrderPayload() {
     salesOwner: $('customerSalesOwner').value.trim() || null,
   };
 }
+function updateCustomerEnterpriseMode() {
+  const creating = $('customerEnterpriseMode').value === 'new';
+  $('existingCustomerEnterpriseField').style.display = creating ? 'none' : 'grid';
+  $('newCustomerEnterpriseNameField').style.display = creating ? 'grid' : 'none';
+  $('newCustomerEnterpriseCodeField').style.display = creating ? 'grid' : 'none';
+}
 async function createCustomer() {
   const customerId = Number($('customerId').value || 0);
   const payload = {
     ...customerOrderPayload(),
-    enterpriseId: Number($('customerEnterprise').value),
     contactName: $('customerContact').value.trim() || null,
     contactPhone: $('customerPhone').value.trim() || null,
     notes: $('customerNotes').value.trim() || null,
   };
+  if (!customerId && $('customerEnterpriseMode').value === 'new') {
+    payload.enterpriseName = $('newCustomerEnterpriseName').value.trim();
+    payload.enterpriseCode = $('newCustomerEnterpriseCode').value.trim() || null;
+  } else {
+    payload.enterpriseId = Number($('customerEnterprise').value);
+  }
   const result = customerId
     ? await api(`/customers/${customerId}/renew`, { method: 'POST', body: JSON.stringify(customerOrderPayload()) })
     : await api('/customers', { method: 'POST', body: JSON.stringify(payload) });
   resetCustomerForm();
-  await Promise.all([loadCustomers(), loadOrders()]);
-  alert(`订阅订单 ${result.order.orderNo} 已创建，确认收款后才会生成发包任务。`);
+  await Promise.all([loadEnterprises(), loadCustomers(), loadOrders()]);
+  alert(`${result.enterpriseCreated ? '企业档案与客户账户已创建。' : ''}订阅订单 ${result.order.orderNo} 已创建，确认收款后才会生成发包任务。`);
+}
+function prepareCustomerForEnterprise(id) {
+  const enterprise = state.enterprises.find((item) => item.id === id);
+  if (!enterprise) return;
+  resetCustomerForm();
+  $('customerEnterpriseMode').value = 'existing';
+  updateCustomerEnterpriseMode();
+  $('customerEnterprise').value = String(id);
+  $('customerFormTitle').textContent = `为 ${enterprise.name} 开通客户服务`;
+  switchTab('subscriptionOrders');
 }
 function prepareRenewCustomer(id) {
   const customer = state.customers.find((item) => item.id === id);
   if (!customer) return;
   $('customerId').value = customer.id;
+  $('customerEnterpriseMode').value = 'existing';
+  $('customerEnterpriseMode').disabled = true;
+  updateCustomerEnterpriseMode();
   $('customerEnterprise').value = String(customer.enterpriseId);
   $('customerEnterprise').disabled = true;
   $('customerAccountType').value = 'subscription';
@@ -778,14 +809,18 @@ function prepareRenewCustomer(id) {
   $('customerPhone').value = customer.contactPhone || '';
   $('customerFormTitle').textContent = `为 ${customer.enterpriseName} 新建续费订单`;
   $('createCustomerBtn').textContent = '创建续费待付款订单';
+  $('resetCustomerFormBtn').textContent = '取消续费';
   switchTab('subscriptionOrders');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function resetCustomerForm() {
   $('customerId').value = '';
+  $('customerEnterpriseMode').value = 'existing';
+  $('customerEnterpriseMode').disabled = false;
   $('customerEnterprise').disabled = false;
   $('customerFormTitle').textContent = '新建客户订阅订单';
   $('createCustomerBtn').textContent = '创建待付款订单';
+  $('resetCustomerFormBtn').textContent = '清空表单';
   $('customerTermQuarters').value = '1';
   $('customerAmountDue').value = '0';
   $('customerContractNo').value = '';
@@ -793,6 +828,9 @@ function resetCustomerForm() {
   $('customerContact').value = '';
   $('customerPhone').value = '';
   $('customerNotes').value = '';
+  $('newCustomerEnterpriseName').value = '';
+  $('newCustomerEnterpriseCode').value = '';
+  updateCustomerEnterpriseMode();
 }
 async function setCustomerStatus(id, status) {
   const customer = state.customers.find((item) => item.id === id);
@@ -1378,6 +1416,7 @@ $('loadOrdersBtn').onclick = () => loadOrders().catch(showDebug);
 $('customerTypeFilter').onchange = () => renderCustomers();
 $('customerSearch').oninput = () => renderCustomers();
 $('orderStatusFilter').onchange = () => renderOrders();
+$('customerEnterpriseMode').onchange = () => updateCustomerEnterpriseMode();
 $('customerAccountType').onchange = () => {
   const trial = $('customerAccountType').value === 'trial';
   $('customerTermQuarters').disabled = trial;

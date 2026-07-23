@@ -38,7 +38,7 @@ WX_CODE_ENV_VERSION = os.getenv("WX_CODE_ENV_VERSION", "release")
 PASSWORD_ITERATIONS = 200000
 WX_ACCESS_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
-app = FastAPI(title="Lubaobao API", version="0.11.0-customer-detail")
+app = FastAPI(title="Lubaobao API", version="0.12.0-customer-enterprise-flow")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1235,7 +1235,9 @@ class EnterpriseStatusReq(BaseModel):
 
 
 class CustomerCreateReq(BaseModel):
-    enterpriseId: int
+    enterpriseId: Optional[int] = None
+    enterpriseName: Optional[str] = None
+    enterpriseCode: Optional[str] = None
     accountType: str
     startDate: Optional[str] = None
     contactName: Optional[str] = None
@@ -1393,7 +1395,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "customer-detail", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "customer-detail", "inline-enterprise-create", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -1988,12 +1990,16 @@ def users(authorization: Optional[str] = Header(None)):
 
 def enterprise_response(row) -> dict:
     enterprise = row_to_dict(row)
-    return {
+    response = {
         "id": enterprise["id"],
         "name": enterprise["name"],
         "code": enterprise["code"],
         "status": enterprise["status"],
     }
+    if "customer_id" in enterprise or "customerId" in enterprise:
+        response["customerId"] = enterprise.get("customer_id") or enterprise.get("customerId")
+        response["customerStatus"] = enterprise.get("customer_status") or enterprise.get("customerStatus") or ""
+    return response
 
 
 @app.post("/users")
@@ -2086,7 +2092,18 @@ def update_user_status(user_id: int, req: UserStatusReq, authorization: Optional
 @app.get("/enterprises")
 def enterprises():
     with db() as conn:
-        return [enterprise_response(row) for row in conn.execute("SELECT id, name, code, status FROM enterprises ORDER BY id")]
+        return [
+            enterprise_response(row)
+            for row in conn.execute(
+                """
+                SELECT e.id, e.name, e.code, e.status,
+                       ca.id AS customer_id, ca.status AS customer_status
+                FROM enterprises e
+                LEFT JOIN customer_accounts ca ON ca.enterprise_id = e.id
+                ORDER BY e.id
+                """
+            )
+        ]
 
 
 @app.post("/enterprises")
@@ -2712,10 +2729,30 @@ def create_customer(req: CustomerCreateReq, authorization: Optional[str] = Heade
     customer_policy(req.accountType)
     start_date = parse_customer_date(req.startDate)
     with db() as conn:
-        enterprise = row_to_dict(conn.execute("SELECT id, status FROM enterprises WHERE id = ?", (req.enterpriseId,)).fetchone())
+        enterprise_created = False
+        enterprise_id = req.enterpriseId
+        if enterprise_id is None:
+            enterprise_name = (req.enterpriseName or "").strip()
+            enterprise_code = (req.enterpriseCode or "").strip() or f"KH-{datetime.utcnow().strftime('%Y%m%d')}-{secrets.token_hex(2).upper()}"
+            if not enterprise_name:
+                raise HTTPException(status_code=400, detail="新建企业时企业名称不能为空")
+            if conn.execute("SELECT id FROM enterprises WHERE name = ? LIMIT 1", (enterprise_name,)).fetchone():
+                raise HTTPException(status_code=409, detail="同名企业已存在，请选择已有企业开通服务")
+            try:
+                enterprise_cur = conn.execute(
+                    "INSERT INTO enterprises(name, code, status, created_at) VALUES(?, ?, 'active', ?)",
+                    (enterprise_name, enterprise_code, now()),
+                )
+            except Exception as exc:
+                if not is_integrity_error(exc):
+                    raise
+                raise HTTPException(status_code=409, detail="企业编码已存在")
+            enterprise_id = enterprise_cur.lastrowid
+            enterprise_created = True
+        enterprise = row_to_dict(conn.execute("SELECT id, status FROM enterprises WHERE id = ?", (enterprise_id,)).fetchone())
         if not enterprise or enterprise["status"] != "active":
             raise HTTPException(status_code=404, detail="企业不存在或已停用")
-        if conn.execute("SELECT id FROM customer_accounts WHERE enterprise_id = ?", (req.enterpriseId,)).fetchone():
+        if conn.execute("SELECT id FROM customer_accounts WHERE enterprise_id = ?", (enterprise_id,)).fetchone():
             raise HTTPException(status_code=409, detail="该企业已开通客户账户，请使用续期功能")
         end_date = subscription_end_date(req.accountType, start_date, req.termQuarters)
         created_at = now()
@@ -2727,7 +2764,7 @@ def create_customer(req: CustomerCreateReq, authorization: Optional[str] = Heade
             ) VALUES(?, ?, 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                req.enterpriseId,
+                enterprise_id,
                 req.accountType,
                 start_date.isoformat(),
                 end_date.isoformat(),
@@ -2740,10 +2777,10 @@ def create_customer(req: CustomerCreateReq, authorization: Optional[str] = Heade
                 created_at,
             ),
         )
-        customer = {"id": cur.lastrowid, "enterprise_id": req.enterpriseId}
+        customer = {"id": cur.lastrowid, "enterprise_id": enterprise_id}
         order = create_subscription_order(conn, customer, req.accountType, start_date, req.termQuarters, req.amountDue, req.contractNo, req.salesOwner, current_user)
         response = customer_account_response(get_customer_account(conn, customer["id"]))
-    return {"customer": response, "order": order_response(order)}
+    return {"customer": response, "order": order_response(order), "enterpriseCreated": enterprise_created}
 
 
 @app.post("/customers/{customer_id}/renew")

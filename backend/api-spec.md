@@ -141,6 +141,8 @@
 ```
 `accountType` 支持 `trial` 和 `subscription`。
 
+新客户也可以不传 `enterpriseId`，改为提交 `enterpriseName` 和可选的 `enterpriseCode`。后端会在同一事务中创建企业档案、客户账户和待付款订单；同名企业已存在时会要求选择已有企业，避免重复档案。
+
 ### POST `/customers/{id}/renew`
 创建续费待付款订单，或创建试用转订阅订单。未传 `startDate` 时，新订单接在当前服务期限之后。
 ```json
