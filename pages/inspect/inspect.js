@@ -14,6 +14,7 @@ Page({
     materialPackBoilerId: null,
     materialPackBoilerName: '',
     previewImage: '',
+    photoQuality: null,
     retestTask: null,
     waterItems: [
       { code: 'ph', name: 'pH', unit: '', value: '8.2', placeholder: '如 8.2' },
@@ -124,7 +125,7 @@ Page({
 
   async chooseInspectionImage() {
     if (config.useMock) {
-      this.setData({ previewImage: '/images/mock-board.png' })
+      this.setData({ previewImage: '/images/mock-board.png', photoQuality: null })
       ui.success('已选择图片')
       return
     }
@@ -134,7 +135,7 @@ Page({
       })
       const filePath = chooseRes.tempFiles && chooseRes.tempFiles[0] && chooseRes.tempFiles[0].tempFilePath
       if (!filePath) return ui.error('未获取到图片')
-      this.setData({ previewImage: filePath })
+      this.setData({ previewImage: filePath, photoQuality: null })
       ui.success('图片已选择')
     } catch (e) {
       ui.error('拍照失败')
@@ -223,7 +224,16 @@ Page({
       if (!inspectionId) throw new Error('创建巡检失败：缺少inspectionId')
 
       // 真实接口优先：上传图片 -> 发起识别；mock 下也兼容
-      await uploadImage(this.data.previewImage, inspectionId)
+      const uploadResult = await uploadImage(this.data.previewImage, inspectionId)
+      const photoQuality = uploadResult.qualityStatus ? {
+        status: uploadResult.qualityStatus,
+        score: uploadResult.qualityScore,
+        messages: (uploadResult.qualityFlags || []).map((item) => item.message)
+      } : null
+      this.setData({ photoQuality })
+      if (photoQuality && photoQuality.status === 'reject') {
+        throw new Error(photoQuality.messages.join('；') || '照片质量不合格，请重新拍摄')
+      }
       const result = await recognizeInspection({ inspectionId, values: waterValues })
 
       wx.setStorageSync('BG_LAST_RESULT', result.result || result)

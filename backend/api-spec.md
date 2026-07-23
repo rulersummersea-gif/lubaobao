@@ -297,6 +297,9 @@
 - `multipart/form-data`
 - `file`: 图片文件
 - `inspectionId`: 巡检ID
+- `file`: JPG、PNG或WebP图片，最大12MB
+
+上传后返回图片尺寸、大小、亮度、对比度、清晰度、质量评分、质量状态和问题列表。`qualityStatus` 支持 `pass`、`review`、`reject`；`reject` 图片不能进入识别。
 
 ### POST `/inspections/:id/upload`
 同上，REST 风格上传别名。
@@ -315,7 +318,7 @@
   }
 }
 ```
-灰测阶段支持人工录入 6 项试纸读数，后端按 `values` 直接生成诊断和复测任务；若未传 `values`，使用样例值兜底。照片上传仍保留，用于后续试纸照片识别算法训练和人工复核。
+灰测阶段支持人工录入 6 项试纸读数，后端按 `values` 直接生成诊断和复测任务；若未传 `values`，使用样例值兜底。识别前必须上传照片，质量状态为 `reject` 时拒绝识别。照片、质量指标和人工读数会写入检测样本，供后续算法训练和人工复核。
 当前第一版锅水检测模板按优先级返回 6 项：
 1. pH：pH试纸
 2. 磷酸根：磷酸根试纸
@@ -375,6 +378,26 @@
 ### POST `/inspections/submit`
 ```json
 { "inspectionId": 9001, "remark": "补加药剂后复测" }
+```
+
+### GET `/inspection-samples`
+后台识别样本列表，需要 `platform_admin` 或 `enterprise_admin`。支持 `qualityStatus` 和 `labelStatus` 筛选，返回照片质量、人工值、AI值、确认值和审核信息。
+
+### PUT `/inspection-samples/{inspectionId}/review`
+审核检测样本。通过时必须提交完整六项确认值；剔除时可以只提交原因。
+```json
+{
+  "labelStatus": "approved",
+  "confirmedValues": {
+    "ph": "8.2",
+    "phosphate": "8",
+    "sulfite": "18",
+    "alkalinity": "22",
+    "chloride": "320",
+    "hardness": "0.05"
+  },
+  "note": "照片与人工读数一致"
+}
 ```
 
 ### GET `/retest-tasks?enterpriseId=1&status=pending`

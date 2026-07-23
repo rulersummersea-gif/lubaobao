@@ -17,6 +17,7 @@ from typing import Optional
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from PIL import Image, ImageFilter, ImageStat, UnidentifiedImageError
 from pydantic import BaseModel, Field
 import qrcode
 
@@ -38,7 +39,7 @@ WX_CODE_ENV_VERSION = os.getenv("WX_CODE_ENV_VERSION", "release")
 PASSWORD_ITERATIONS = 200000
 WX_ACCESS_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
-app = FastAPI(title="Lubaobao API", version="0.13.0-order-exceptions")
+app = FastAPI(title="Lubaobao API", version="0.14.0-inspection-samples")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -766,6 +767,88 @@ def ensure_subscription_order_event_schema(conn) -> None:
         )
 
 
+def ensure_inspection_sample_schema(conn) -> None:
+    if DB_DRIVER == "mysql":
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS inspection_samples (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              inspection_id BIGINT NOT NULL UNIQUE,
+              image_url VARCHAR(512) NOT NULL,
+              image_width INT NULL,
+              image_height INT NULL,
+              size_bytes BIGINT NULL,
+              mime_type VARCHAR(64) NULL,
+              brightness DECIMAL(8,2) NULL,
+              contrast DECIMAL(8,2) NULL,
+              sharpness DECIMAL(12,2) NULL,
+              quality_score INT NOT NULL DEFAULT 0,
+              quality_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+              quality_flags_json JSON NULL,
+              recognition_source VARCHAR(32) NULL,
+              algorithm_version VARCHAR(64) NULL,
+              manual_values_json JSON NULL,
+              ai_values_json JSON NULL,
+              confirmed_values_json JSON NULL,
+              label_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+              review_note VARCHAR(512) NULL,
+              reviewed_by BIGINT NULL,
+              reviewed_by_name VARCHAR(64) NULL,
+              reviewed_at DATETIME NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NOT NULL,
+              KEY idx_inspection_samples_quality (quality_status, id),
+              KEY idx_inspection_samples_label (label_status, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+    else:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS inspection_samples (
+              id INTEGER PRIMARY KEY,
+              inspection_id INTEGER NOT NULL UNIQUE,
+              image_url TEXT NOT NULL,
+              image_width INTEGER,
+              image_height INTEGER,
+              size_bytes INTEGER,
+              mime_type TEXT,
+              brightness REAL,
+              contrast REAL,
+              sharpness REAL,
+              quality_score INTEGER NOT NULL DEFAULT 0,
+              quality_status TEXT NOT NULL DEFAULT 'pending',
+              quality_flags_json TEXT,
+              recognition_source TEXT,
+              algorithm_version TEXT,
+              manual_values_json TEXT,
+              ai_values_json TEXT,
+              confirmed_values_json TEXT,
+              label_status TEXT NOT NULL DEFAULT 'pending',
+              review_note TEXT,
+              reviewed_by INTEGER,
+              reviewed_by_name TEXT,
+              reviewed_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_inspection_samples_quality ON inspection_samples(quality_status, id);
+            CREATE INDEX IF NOT EXISTS idx_inspection_samples_label ON inspection_samples(label_status, id);
+            """
+        )
+    insert_prefix = "INSERT IGNORE" if DB_DRIVER == "mysql" else "INSERT OR IGNORE"
+    conn.execute(
+        f"""
+        {insert_prefix} INTO inspection_samples(
+          inspection_id, image_url, quality_score, quality_status, quality_flags_json,
+          label_status, created_at, updated_at
+        )
+        SELECT id, image_url, 0, 'pending', '[]', 'pending', created_at, created_at
+        FROM inspections WHERE image_url IS NOT NULL AND image_url != ''
+        """
+    )
+
+
 def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "water_quality_limits", "updated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
@@ -800,6 +883,7 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "customer_account_periods", "allocated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_subscription_indexes(conn)
     ensure_subscription_order_event_schema(conn)
+    ensure_inspection_sample_schema(conn)
     ensure_pack_qr_index(conn)
     ensure_onboarding_schema(conn)
     ensure_pack_binding_event_schema(conn)
@@ -1410,6 +1494,12 @@ class RecognizeReq(BaseModel):
     values: Optional[dict] = None
 
 
+class InspectionSampleReviewReq(BaseModel):
+    labelStatus: str
+    confirmedValues: Optional[dict] = None
+    note: Optional[str] = ""
+
+
 class SubmitReq(BaseModel):
     inspectionId: int
     remark: Optional[str] = ""
@@ -1436,7 +1526,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["subscription-orders", "payment-records", "order-cancellation", "order-refunds", "order-event-audit", "quarterly-fulfillment", "customer-accounts", "customer-detail", "inline-enterprise-create", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["subscription-orders", "payment-records", "order-cancellation", "order-refunds", "order-event-audit", "quarterly-fulfillment", "customer-accounts", "customer-detail", "inline-enterprise-create", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "image-quality-gate", "inspection-samples", "sample-label-review", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -4170,6 +4260,201 @@ def save_inspection_test_results(conn, inspection_id: int, items: list[dict]) ->
         )
 
 
+def analyze_inspection_image(content: bytes, declared_mime: Optional[str] = None) -> dict:
+    size_bytes = len(content)
+    if size_bytes == 0:
+        raise HTTPException(status_code=400, detail="上传图片为空")
+    if size_bytes > 12 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片不能超过12MB")
+    try:
+        with Image.open(io.BytesIO(content)) as source:
+            image_format = (source.format or "").upper()
+            width, height = source.size
+            image = source.convert("RGB")
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="无法识别图片格式，请上传清晰的JPG、PNG或WebP图片") from exc
+    if image_format not in ("JPEG", "PNG", "WEBP"):
+        raise HTTPException(status_code=400, detail="仅支持JPG、PNG或WebP图片")
+
+    sample = image.copy()
+    sample.thumbnail((640, 640))
+    gray = sample.convert("L")
+    stats = ImageStat.Stat(gray)
+    brightness = float(stats.mean[0])
+    contrast = float(stats.stddev[0])
+    edge_stats = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES))
+    sharpness = float(edge_stats.var[0])
+    flags = []
+
+    def add_flag(code: str, message: str, severity: str = "review") -> None:
+        flags.append({"code": code, "message": message, "severity": severity})
+
+    if min(width, height) < 720:
+        add_flag("resolution_low", "图片短边低于720像素，请靠近试纸重新拍摄", "reject")
+    if size_bytes < 30 * 1024:
+        add_flag("file_too_small", "图片文件过小，可能经过度压缩", "review")
+    if brightness < 45:
+        add_flag("too_dark", "画面过暗，请增加均匀照明", "review")
+    elif brightness > 220:
+        add_flag("too_bright", "画面过亮或存在强反光", "review")
+    if contrast < 18:
+        add_flag("contrast_low", "颜色区分度偏低，请避免雾气和逆光", "review")
+    if sharpness < 80:
+        add_flag("blurred", "图片可能模糊，请保持手机稳定并重新对焦", "review")
+
+    reject_count = sum(1 for flag in flags if flag["severity"] == "reject")
+    quality_status = "reject" if reject_count else "review" if flags else "pass"
+    quality_score = max(0, 100 - reject_count * 40 - (len(flags) - reject_count) * 15)
+    mime_type = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}[image_format]
+    return {
+        "width": width,
+        "height": height,
+        "sizeBytes": size_bytes,
+        "mimeType": mime_type or declared_mime or "application/octet-stream",
+        "brightness": round(brightness, 2),
+        "contrast": round(contrast, 2),
+        "sharpness": round(sharpness, 2),
+        "qualityScore": quality_score,
+        "qualityStatus": quality_status,
+        "qualityFlags": flags,
+    }
+
+
+def save_inspection_sample_upload(conn, inspection_id: int, image_url: str, quality: dict) -> None:
+    values = (
+        inspection_id,
+        image_url,
+        quality["width"],
+        quality["height"],
+        quality["sizeBytes"],
+        quality["mimeType"],
+        quality["brightness"],
+        quality["contrast"],
+        quality["sharpness"],
+        quality["qualityScore"],
+        quality["qualityStatus"],
+        json.dumps(quality["qualityFlags"], ensure_ascii=False),
+        now(),
+        now(),
+    )
+    if DB_DRIVER == "mysql":
+        conn.execute(
+            """
+            INSERT INTO inspection_samples(
+              inspection_id, image_url, image_width, image_height, size_bytes, mime_type,
+              brightness, contrast, sharpness, quality_score, quality_status,
+              quality_flags_json, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              image_url=VALUES(image_url), image_width=VALUES(image_width), image_height=VALUES(image_height),
+              size_bytes=VALUES(size_bytes), mime_type=VALUES(mime_type), brightness=VALUES(brightness),
+              contrast=VALUES(contrast), sharpness=VALUES(sharpness), quality_score=VALUES(quality_score),
+              quality_status=VALUES(quality_status), quality_flags_json=VALUES(quality_flags_json),
+              label_status='pending', reviewed_by=NULL, reviewed_by_name=NULL, reviewed_at=NULL,
+              review_note=NULL, updated_at=VALUES(updated_at)
+            """,
+            values,
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO inspection_samples(
+              inspection_id, image_url, image_width, image_height, size_bytes, mime_type,
+              brightness, contrast, sharpness, quality_score, quality_status,
+              quality_flags_json, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(inspection_id) DO UPDATE SET
+              image_url=excluded.image_url, image_width=excluded.image_width, image_height=excluded.image_height,
+              size_bytes=excluded.size_bytes, mime_type=excluded.mime_type, brightness=excluded.brightness,
+              contrast=excluded.contrast, sharpness=excluded.sharpness, quality_score=excluded.quality_score,
+              quality_status=excluded.quality_status, quality_flags_json=excluded.quality_flags_json,
+              label_status='pending', reviewed_by=NULL, reviewed_by_name=NULL, reviewed_at=NULL,
+              review_note=NULL, updated_at=excluded.updated_at
+            """,
+            values,
+        )
+
+
+def json_object(value) -> dict:
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def json_array(value) -> list:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except (TypeError, json.JSONDecodeError):
+        return []
+
+
+def normalize_sample_values(values: Optional[dict], require_all: bool = True) -> dict:
+    source = values or {}
+    normalized = {}
+    for item in WATER_TEST_ITEMS:
+        code = item["code"]
+        raw = str(source.get(code, "")).strip()
+        if not raw:
+            if require_all:
+                raise HTTPException(status_code=400, detail=f"请填写{item['name']}确认值")
+            continue
+        try:
+            number = float(raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{item['name']}读数格式不正确") from exc
+        if number < 0 or (code == "ph" and number > 14):
+            raise HTTPException(status_code=400, detail=f"{item['name']}读数超出合理范围")
+        normalized[code] = raw
+    return normalized
+
+
+def inspection_sample_response(row) -> dict:
+    sample = row_to_dict(row)
+    return {
+        "id": sample["id"],
+        "inspectionId": sample["inspection_id"],
+        "enterpriseId": sample.get("enterprise_id"),
+        "enterpriseName": sample.get("enterprise_name") or "",
+        "boilerId": sample.get("boiler_id"),
+        "boilerName": sample.get("boiler_name") or "",
+        "packCode": sample.get("pack_code") or "",
+        "inspectionStatus": sample.get("inspection_status") or "",
+        "imageUrl": sample["image_url"],
+        "imageWidth": sample.get("image_width"),
+        "imageHeight": sample.get("image_height"),
+        "sizeBytes": sample.get("size_bytes"),
+        "mimeType": sample.get("mime_type") or "",
+        "brightness": decimal_to_number(sample.get("brightness")),
+        "contrast": decimal_to_number(sample.get("contrast")),
+        "sharpness": decimal_to_number(sample.get("sharpness")),
+        "qualityScore": int(sample.get("quality_score") or 0),
+        "qualityStatus": sample.get("quality_status") or "pending",
+        "qualityFlags": json_array(sample.get("quality_flags_json")),
+        "recognitionSource": sample.get("recognition_source") or "",
+        "algorithmVersion": sample.get("algorithm_version") or "",
+        "manualValues": json_object(sample.get("manual_values_json")),
+        "aiValues": json_object(sample.get("ai_values_json")),
+        "confirmedValues": json_object(sample.get("confirmed_values_json")),
+        "labelStatus": sample.get("label_status") or "pending",
+        "reviewNote": sample.get("review_note") or "",
+        "reviewedByName": sample.get("reviewed_by_name") or "",
+        "reviewedAt": sample.get("reviewed_at"),
+        "createdAt": sample.get("created_at"),
+        "updatedAt": sample.get("updated_at"),
+    }
+
+
 @app.post("/inspections")
 def create_inspection(req: InspectionCreateReq, authorization: Optional[str] = Header(None)):
     current_user = get_current_user(authorization)
@@ -4230,19 +4515,27 @@ def create_inspection_alias(req: InspectionCreateReq, authorization: Optional[st
 
 
 @app.post("/inspections/{inspection_id}/upload")
-async def upload_by_path(inspection_id: int, file: UploadFile = File(...)):
-    return await save_upload(inspection_id, file)
+async def upload_by_path(inspection_id: int, file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    return await save_upload(inspection_id, file, authorization)
 
 
 @app.post("/inspections/upload-image")
-async def upload_image(inspectionId: int = Form(...), file: UploadFile = File(...)):
-    return await save_upload(inspectionId, file)
+async def upload_image(inspectionId: int = Form(...), file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    return await save_upload(inspectionId, file, authorization)
 
 
-async def save_upload(inspection_id: int, file: UploadFile):
-    suffix = Path(file.filename or "upload.jpg").suffix or ".jpg"
-    target = UPLOAD_DIR / f"inspection-{inspection_id}-{int(datetime.utcnow().timestamp())}{suffix}"
+async def save_upload(inspection_id: int, file: UploadFile, authorization: Optional[str]):
+    current_user = get_current_user(authorization)
     content = await file.read()
+    quality = analyze_inspection_image(content, file.content_type)
+    suffix = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[quality["mimeType"]]
+    target = UPLOAD_DIR / f"inspection-{inspection_id}-{int(datetime.utcnow().timestamp())}{suffix}"
+    with db() as conn:
+        inspection = row_to_dict(conn.execute("SELECT id, enterprise_id FROM inspections WHERE id = ?", (inspection_id,)).fetchone())
+        if not inspection:
+            raise HTTPException(status_code=404, detail="inspection not found")
+        if current_user["role"] != "platform_admin" and int(current_user["enterpriseId"]) != int(inspection["enterprise_id"]):
+            raise HTTPException(status_code=403, detail="无权上传其他企业的巡检图片")
     target.write_bytes(content)
     image_url = f"/uploads/{target.name}"
     with db() as conn:
@@ -4252,7 +4545,8 @@ async def save_upload(inspection_id: int, file: UploadFile):
         )
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="inspection not found")
-    return {"success": True, "inspectionId": inspection_id, "imageUrl": image_url}
+        save_inspection_sample_upload(conn, inspection_id, image_url, quality)
+    return {"success": True, "inspectionId": inspection_id, "imageUrl": image_url, **quality}
 
 
 @app.get("/uploads/{filename}")
@@ -4264,9 +4558,22 @@ def get_upload(filename: str):
 
 
 @app.post("/inspections/recognize")
-def recognize(req: RecognizeReq):
+def recognize(req: RecognizeReq, authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(authorization)
     with db() as conn:
-        result = inspection_result_payload(req.inspectionId, conn, req.values)
+        inspection = row_to_dict(conn.execute("SELECT id, enterprise_id, image_url FROM inspections WHERE id = ?", (req.inspectionId,)).fetchone())
+        if not inspection:
+            raise HTTPException(status_code=404, detail="inspection not found")
+        if current_user["role"] != "platform_admin" and int(current_user["enterpriseId"]) != int(inspection["enterprise_id"]):
+            raise HTTPException(status_code=403, detail="无权处理其他企业的巡检")
+        sample = row_to_dict(conn.execute("SELECT * FROM inspection_samples WHERE inspection_id = ?", (req.inspectionId,)).fetchone())
+        if not inspection.get("image_url") or not sample:
+            raise HTTPException(status_code=400, detail="请先上传检测照片")
+        if sample.get("quality_status") == "reject":
+            messages = "；".join(flag.get("message", "") for flag in json_array(sample.get("quality_flags_json")))
+            raise HTTPException(status_code=400, detail=messages or "照片质量不合格，请重新拍摄")
+        manual_values = normalize_sample_values(req.values, require_all=True) if req.values else None
+        result = inspection_result_payload(req.inspectionId, conn, manual_values)
         cur = conn.execute(
             """
             UPDATE inspections
@@ -4278,6 +4585,23 @@ def recognize(req: RecognizeReq):
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="inspection not found")
         save_inspection_test_results(conn, req.inspectionId, result["items"])
+        source_values = {item["code"]: item["value"] for item in result["items"]}
+        conn.execute(
+            """
+            UPDATE inspection_samples
+            SET recognition_source = ?, algorithm_version = ?, manual_values_json = ?, ai_values_json = ?,
+                label_status = 'pending', updated_at = ?
+            WHERE inspection_id = ?
+            """,
+            (
+                result["recognitionSource"],
+                "manual-gray-v1" if manual_values else "sample-fallback-v0",
+                json.dumps(manual_values, ensure_ascii=False) if manual_values else None,
+                None if manual_values else json.dumps(source_values, ensure_ascii=False),
+                now(),
+                req.inspectionId,
+            ),
+        )
         create_retest_tasks_from_result(conn, result)
         backfill_retest_result(conn, req.inspectionId)
     return {"inspectionId": req.inspectionId, "status": "done", "result": result}
@@ -4287,6 +4611,7 @@ def recognize(req: RecognizeReq):
 def get_result(inspectionId: int):
     with db() as conn:
         row = conn.execute("SELECT * FROM inspections WHERE id = ?", (inspectionId,)).fetchone()
+        sample = row_to_dict(conn.execute("SELECT * FROM inspection_samples WHERE inspection_id = ?", (inspectionId,)).fetchone())
     if not row:
         raise HTTPException(status_code=404, detail="inspection not found")
     if row["result_json"]:
@@ -4298,7 +4623,114 @@ def get_result(inspectionId: int):
     payload["submittedAt"] = row["submitted_at"]
     payload["inspectorUserId"] = row["inspector_user_id"]
     payload["inspectorName"] = row["inspector_name"]
+    payload["sampleQuality"] = {
+        "status": sample.get("quality_status"),
+        "score": int(sample.get("quality_score") or 0),
+        "flags": json_array(sample.get("quality_flags_json")),
+        "labelStatus": sample.get("label_status"),
+        "algorithmVersion": sample.get("algorithm_version") or "",
+    } if sample else None
     return payload
+
+
+@app.get("/inspection-samples")
+def list_inspection_samples(
+    qualityStatus: Optional[str] = None,
+    labelStatus: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    filters = []
+    params = []
+    if current_user["role"] == "enterprise_admin":
+        filters.append("i.enterprise_id = ?")
+        params.append(current_user["enterpriseId"])
+    if qualityStatus:
+        filters.append("s.quality_status = ?")
+        params.append(qualityStatus)
+    if labelStatus:
+        filters.append("s.label_status = ?")
+        params.append(labelStatus)
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT s.*, i.enterprise_id, i.boiler_id, i.status AS inspection_status,
+                   e.name AS enterprise_name, b.name AS boiler_name, p.code AS pack_code
+            FROM inspection_samples s
+            JOIN inspections i ON i.id = s.inspection_id
+            LEFT JOIN enterprises e ON e.id = i.enterprise_id
+            LEFT JOIN boilers b ON b.id = i.boiler_id
+            LEFT JOIN material_packs p ON p.id = i.material_pack_id
+            {where_clause}
+            ORDER BY s.id DESC LIMIT 300
+            """,
+            tuple(params),
+        ).fetchall()
+        return [inspection_sample_response(row) for row in rows]
+
+
+@app.put("/inspection-samples/{inspection_id}/review")
+def review_inspection_sample(
+    inspection_id: int,
+    req: InspectionSampleReviewReq,
+    authorization: Optional[str] = Header(None),
+):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    if req.labelStatus not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="标注状态仅支持 approved 或 rejected")
+    confirmed_values = normalize_sample_values(req.confirmedValues, require_all=True) if req.labelStatus == "approved" else {}
+    with db() as conn:
+        sample = row_to_dict(
+            conn.execute(
+                """
+                SELECT s.*, i.enterprise_id, i.boiler_id, i.status AS inspection_status,
+                       e.name AS enterprise_name, b.name AS boiler_name, p.code AS pack_code
+                FROM inspection_samples s
+                JOIN inspections i ON i.id = s.inspection_id
+                LEFT JOIN enterprises e ON e.id = i.enterprise_id
+                LEFT JOIN boilers b ON b.id = i.boiler_id
+                LEFT JOIN material_packs p ON p.id = i.material_pack_id
+                WHERE s.inspection_id = ?
+                """,
+                (inspection_id,),
+            ).fetchone()
+        )
+        if not sample:
+            raise HTTPException(status_code=404, detail="检测样本不存在")
+        ensure_enterprise_scope(current_user, sample["enterprise_id"])
+        conn.execute(
+            """
+            UPDATE inspection_samples
+            SET confirmed_values_json = ?, label_status = ?, review_note = ?,
+                reviewed_by = ?, reviewed_by_name = ?, reviewed_at = ?, updated_at = ?
+            WHERE inspection_id = ?
+            """,
+            (
+                json.dumps(confirmed_values, ensure_ascii=False) if confirmed_values else None,
+                req.labelStatus,
+                (req.note or "").strip() or None,
+                current_user.get("id"),
+                current_user.get("name") or current_user.get("username"),
+                now(),
+                now(),
+                inspection_id,
+            ),
+        )
+        updated = conn.execute(
+            """
+            SELECT s.*, i.enterprise_id, i.boiler_id, i.status AS inspection_status,
+                   e.name AS enterprise_name, b.name AS boiler_name, p.code AS pack_code
+            FROM inspection_samples s
+            JOIN inspections i ON i.id = s.inspection_id
+            LEFT JOIN enterprises e ON e.id = i.enterprise_id
+            LEFT JOIN boilers b ON b.id = i.boiler_id
+            LEFT JOIN material_packs p ON p.id = i.material_pack_id
+            WHERE s.inspection_id = ?
+            """,
+            (inspection_id,),
+        ).fetchone()
+        return inspection_sample_response(updated)
 
 
 @app.post("/inspections/submit")

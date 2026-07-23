@@ -103,6 +103,7 @@
       <div class="nav-group">
         <div class="nav-label">巡检服务</div>
         <button data-tab="inspections">巡检记录</button>
+        <button data-tab="samples">识别样本</button>
         <button data-tab="retests">服务处置</button>
         <button data-tab="reports">月报中心</button>
       </div>
@@ -437,6 +438,40 @@
       </div>
     </section>
 
+    <section id="samples" class="tab">
+      <div class="card">
+        <div class="row">
+          <h2 style="margin-right:auto">识别样本</h2>
+          <select id="sampleQualityFilter"><option value="">全部质量</option><option value="pass">质量合格</option><option value="review">需复核</option><option value="reject">不合格</option><option value="pending">待检测</option></select>
+          <select id="sampleLabelFilter"><option value="">全部标注</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已剔除</option></select>
+          <button class="secondary" id="loadSamplesBtn">刷新样本</button>
+        </div>
+        <table><thead><tr><th>巡检</th><th>企业/锅炉</th><th>照片</th><th>质量</th><th>读数来源</th><th>标注状态</th><th>采集时间</th><th>操作</th></tr></thead><tbody id="samplesBody"></tbody></table>
+      </div>
+      <div class="card" id="sampleReviewPanel" style="display:none">
+        <div class="row"><h2 id="sampleReviewTitle" style="margin-right:auto">样本审核</h2><button class="secondary" id="closeSampleReviewBtn">关闭</button></div>
+        <div class="image-box">
+          <a id="sampleImageLink" href="#" target="_blank"><img id="sampleImage" alt="检测样本"></a>
+          <div>
+            <div class="detail-grid" id="sampleQualityDetail"></div>
+            <div class="detail-cell" style="margin-top:10px"><span>质量提示</span><b id="sampleQualityFlags">-</b></div>
+          </div>
+        </div>
+        <h3>六项确认值</h3>
+        <div class="row pack-form" id="sampleValueFields">
+          <div class="field"><label for="sampleValuePh">pH</label><input id="sampleValuePh" type="number" min="0" max="14" step="0.1"></div>
+          <div class="field"><label for="sampleValuePhosphate">磷酸根 mg/L</label><input id="sampleValuePhosphate" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="sampleValueSulfite">亚硫酸根 mg/L</label><input id="sampleValueSulfite" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="sampleValueAlkalinity">总碱度 mmol/L</label><input id="sampleValueAlkalinity" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="sampleValueChloride">氯离子 mg/L</label><input id="sampleValueChloride" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="sampleValueHardness">硬度 mmol/L</label><input id="sampleValueHardness" type="number" min="0" step="0.001"></div>
+          <div class="field wide"><label for="sampleReviewNote">审核备注</label><input id="sampleReviewNote" placeholder="修正原因、光照问题或剔除原因"></div>
+          <button id="approveSampleBtn">确认标注</button>
+          <button class="danger" id="rejectSampleBtn">剔除样本</button>
+        </div>
+      </div>
+    </section>
+
     <section id="retests" class="tab">
       <div class="card">
         <div class="row">
@@ -521,6 +556,8 @@ const state = {
   customers: [],
   orders: [],
   bindingEvents: [],
+  samples: [],
+  currentSample: null,
   currentCustomerId: null,
   currentTab: 'dashboard',
 };
@@ -534,6 +571,7 @@ const TAB_META = {
   packBindings: ['扫码与绑定记录', '追踪材料包扫码、绑定、换包、解绑和作废过程'],
   boilers: ['锅炉档案', '维护客户锅炉及设备基础信息'],
   inspections: ['巡检记录', '查看炉水检测结果和现场图片'],
+  samples: ['识别样本', '审核照片质量并沉淀六项试纸标注数据'],
   retests: ['服务处置', '跟进异常结果、专业意见和复测情况'],
   reports: ['月报中心', '汇总企业月度巡检结果'],
   standards: ['检测标准', '维护炉水六项指标的判断标准'],
@@ -1258,6 +1296,81 @@ async function resetStandards() {
   resetStandardForm();
   await loadStandards();
 }
+function sampleQualityText(status) { return ({ pass: '质量合格', review: '需复核', reject: '不合格', pending: '待检测' })[status] || status || '-'; }
+function sampleLabelText(status) { return ({ pending: '待审核', approved: '已通过', rejected: '已剔除' })[status] || status || '-'; }
+function sampleSourceText(source) { return ({ manual_gray: '人工灰测', ai: '智能识别', sample_fallback: '样例兜底' })[source] || source || '待识别'; }
+async function loadSamples() {
+  const params = new URLSearchParams();
+  if ($('sampleQualityFilter').value) params.set('qualityStatus', $('sampleQualityFilter').value);
+  if ($('sampleLabelFilter').value) params.set('labelStatus', $('sampleLabelFilter').value);
+  state.samples = await api('/inspection-samples' + (params.toString() ? '?' + params.toString() : ''));
+  $('samplesBody').innerHTML = state.samples.map((item) => {
+    const imageUrl = base() + item.imageUrl;
+    return `<tr>
+      <td><b>#${item.inspectionId}</b><div class="muted">${esc(item.packCode || '-')}</div></td>
+      <td>${esc(item.enterpriseName || '-')}<div class="muted">${esc(item.boilerName || '-')}</div></td>
+      <td><a href="${esc(imageUrl)}" target="_blank">查看照片</a><div class="muted">${item.imageWidth || '-'} × ${item.imageHeight || '-'}</div></td>
+      <td>${tag(sampleQualityText(item.qualityStatus))}<div class="muted">评分 ${item.qualityScore}</div></td>
+      <td>${esc(sampleSourceText(item.recognitionSource))}<div class="muted">${esc(item.algorithmVersion || '-')}</div></td>
+      <td>${tag(sampleLabelText(item.labelStatus))}<div class="muted">${esc(item.reviewedByName || '-')}</div></td>
+      <td class="nowrap">${esc(String(item.createdAt || '').replace('T', ' ').slice(0, 19))}</td>
+      <td><button onclick="openSampleReview(${item.inspectionId})">审核样本</button></td>
+    </tr>`;
+  }).join('');
+  if (!state.samples.length) $('samplesBody').innerHTML = '<tr><td colspan="8" class="empty">暂无符合条件的识别样本</td></tr>';
+}
+function openSampleReview(inspectionId) {
+  const sample = state.samples.find((item) => item.inspectionId === Number(inspectionId));
+  if (!sample) return;
+  state.currentSample = sample;
+  const imageUrl = base() + sample.imageUrl;
+  $('sampleReviewTitle').textContent = `样本审核 · 巡检 #${sample.inspectionId}`;
+  $('sampleImage').src = imageUrl;
+  $('sampleImageLink').href = imageUrl;
+  $('sampleQualityDetail').innerHTML = `
+    <div class="detail-cell"><span>质量结论</span><b>${esc(sampleQualityText(sample.qualityStatus))}</b></div>
+    <div class="detail-cell"><span>质量评分</span><b>${sample.qualityScore}</b></div>
+    <div class="detail-cell"><span>亮度</span><b>${sample.brightness ?? '-'}</b></div>
+    <div class="detail-cell"><span>对比度</span><b>${sample.contrast ?? '-'}</b></div>
+    <div class="detail-cell"><span>清晰度</span><b>${sample.sharpness ?? '-'}</b></div>
+    <div class="detail-cell"><span>图片大小</span><b>${sample.sizeBytes ? (sample.sizeBytes / 1024).toFixed(0) + ' KB' : '-'}</b></div>`;
+  $('sampleQualityFlags').textContent = (sample.qualityFlags || []).map((item) => item.message).join('；') || '未发现基础质量问题';
+  const values = Object.keys(sample.confirmedValues || {}).length ? sample.confirmedValues : Object.keys(sample.manualValues || {}).length ? sample.manualValues : sample.aiValues || {};
+  $('sampleValuePh').value = values.ph || '';
+  $('sampleValuePhosphate').value = values.phosphate || '';
+  $('sampleValueSulfite').value = values.sulfite || '';
+  $('sampleValueAlkalinity').value = values.alkalinity || '';
+  $('sampleValueChloride').value = values.chloride || '';
+  $('sampleValueHardness').value = values.hardness || '';
+  $('sampleReviewNote').value = sample.reviewNote || '';
+  $('sampleReviewPanel').style.display = 'block';
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+function sampleConfirmedValues() {
+  return {
+    ph: $('sampleValuePh').value.trim(),
+    phosphate: $('sampleValuePhosphate').value.trim(),
+    sulfite: $('sampleValueSulfite').value.trim(),
+    alkalinity: $('sampleValueAlkalinity').value.trim(),
+    chloride: $('sampleValueChloride').value.trim(),
+    hardness: $('sampleValueHardness').value.trim(),
+  };
+}
+async function reviewSample(labelStatus) {
+  if (!state.currentSample) return;
+  const action = labelStatus === 'approved' ? '确认该样本标注' : '剔除该样本';
+  if (!confirm(`${action}？`)) return;
+  const payload = {
+    labelStatus,
+    confirmedValues: labelStatus === 'approved' ? sampleConfirmedValues() : null,
+    note: $('sampleReviewNote').value.trim() || null,
+  };
+  await api(`/inspection-samples/${state.currentSample.inspectionId}/review`, { method: 'PUT', body: JSON.stringify(payload) });
+  $('sampleReviewPanel').style.display = 'none';
+  state.currentSample = null;
+  await loadSamples();
+  alert(labelStatus === 'approved' ? '样本标注已确认。' : '样本已从训练候选中剔除。');
+}
 async function loadInspections() {
   const params = new URLSearchParams();
   if ($('inspectionStatus').value) params.set('status', $('inspectionStatus').value);
@@ -1445,6 +1558,7 @@ async function loadTab(id) {
   }
   if (id === 'standards') return loadStandards();
   if (id === 'inspections') return loadInspections();
+  if (id === 'samples') return loadSamples();
   if (id === 'retests') return loadRetestTasks();
   if (id === 'users') return loadUsers();
   if (id === 'reports') return loadReport();
@@ -1500,6 +1614,12 @@ $('saveStandardBtn').onclick = () => saveStandard().catch(showDebug);
 $('resetStandardFormBtn').onclick = () => resetStandardForm();
 $('resetStandardsBtn').onclick = () => resetStandards().catch(showDebug);
 $('loadInspectionsBtn').onclick = () => loadInspections().catch(showDebug);
+$('loadSamplesBtn').onclick = () => loadSamples().catch(showDebug);
+$('sampleQualityFilter').onchange = () => loadSamples().catch(showDebug);
+$('sampleLabelFilter').onchange = () => loadSamples().catch(showDebug);
+$('closeSampleReviewBtn').onclick = () => $('sampleReviewPanel').style.display = 'none';
+$('approveSampleBtn').onclick = () => reviewSample('approved').catch(showDebug);
+$('rejectSampleBtn').onclick = () => reviewSample('rejected').catch(showDebug);
 $('loadRetestsBtn').onclick = () => loadRetestTasks().catch(showDebug);
 $('loadUsersBtn').onclick = () => loadUsers().catch(showDebug);
 $('saveUserBtn').onclick = () => saveUser().catch(showDebug);

@@ -22,6 +22,10 @@
     <view wx:if="{{previewImage}}" class="preview-box">
       <image class="preview-img" src="{{previewImage}}" mode="aspectFill"></image>
     </view>
+    <view wx:if="{{photoQuality}}" class="tip-box">
+      照片质量：{{photoQuality.status === 'pass' ? '合格' : photoQuality.status === 'review' ? '需后台复核' : '不合格'}}（{{photoQuality.score}}分）
+      <block wx:for="{{photoQuality.messages}}" wx:key="*this"><view>{{item}}</view></block>
+    </view>
   </view>
 
   <view class="card">

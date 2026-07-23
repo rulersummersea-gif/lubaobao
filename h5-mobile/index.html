@@ -105,6 +105,7 @@
         <h2>拍照/上传</h2>
         <input id="photoInput" type="file" accept="image/*" capture="environment">
         <img id="photoPreview" class="preview" alt="检测照片预览" style="display:none">
+        <p class="muted" id="photoQualityHint" style="display:none"></p>
       </div>
       <div class="card">
         <h2>试纸读数</h2>
@@ -174,6 +175,7 @@
       boilers: [],
       pack: null,
       photoFile: null,
+      photoQuality: null,
       lastResult: JSON.parse(localStorage.getItem('H5_LAST_RESULT') || 'null'),
       lastInspectionId: localStorage.getItem('H5_LAST_INSPECTION_ID') || '',
       retestTask: JSON.parse(localStorage.getItem('H5_RETEST_TASK') || 'null'),
@@ -329,6 +331,7 @@
     async function submitInspection() {
       if (!state.token) throw new Error('请先登录');
       if (!state.pack) await verifyPack();
+      if (!state.photoFile) throw new Error('请先拍摄或选择检测照片');
       const boilerId = Number(state.retestTask && state.retestTask.boilerId ? state.retestTask.boilerId : $('boilerSelect').value);
       const created = await api('/inspections', {
         method: 'POST',
@@ -340,7 +343,14 @@
         })
       });
       const inspectionId = created.inspectionId || created.id;
-      await uploadPhoto(inspectionId);
+      const uploadResult = await uploadPhoto(inspectionId);
+      state.photoQuality = uploadResult && uploadResult.qualityStatus ? uploadResult : null;
+      if (state.photoQuality) {
+        const messages = (state.photoQuality.qualityFlags || []).map((item) => item.message);
+        $('photoQualityHint').textContent = `照片质量：${state.photoQuality.qualityStatus === 'pass' ? '合格' : state.photoQuality.qualityStatus === 'review' ? '需后台复核' : '不合格'}（${state.photoQuality.qualityScore}分）${messages.length ? '；' + messages.join('；') : ''}`;
+        $('photoQualityHint').style.display = 'block';
+        if (state.photoQuality.qualityStatus === 'reject') throw new Error(messages.join('；') || '照片质量不合格，请重新拍摄');
+      }
       const result = await api('/inspections/recognize', {
         method: 'POST',
         body: JSON.stringify({ inspectionId, values: waterValues() })
@@ -474,6 +484,8 @@
     $('photoInput').onchange = (event) => {
       const file = event.target.files && event.target.files[0];
       state.photoFile = file || null;
+      state.photoQuality = null;
+      $('photoQualityHint').style.display = 'none';
       if (file) {
         $('photoPreview').src = URL.createObjectURL(file);
         $('photoPreview').style.display = 'block';
