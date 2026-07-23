@@ -153,6 +153,7 @@
           <h2 style="margin-right:auto">客户账户</h2>
           <select id="customerTypeFilter"><option value="">全部档位</option><option value="trial">试用账户</option><option value="subscription">订阅账户</option></select>
           <input id="customerSearch" placeholder="搜索企业/联系人/电话">
+          <button id="addCustomerBtn">新增客户</button>
           <button class="secondary" id="loadCustomersBtn">刷新客户</button>
         </div>
         <table><thead><tr><th>客户企业</th><th>当前档位</th><th>服务期限</th><th>订单/周期</th><th>联系人</th><th>状态</th><th>操作</th></tr></thead><tbody id="customersBody"></tbody></table>
@@ -793,6 +794,14 @@ function prepareCustomerForEnterprise(id) {
   $('customerFormTitle').textContent = `为 ${enterprise.name} 开通客户服务`;
   switchTab('subscriptionOrders');
 }
+function prepareNewCustomer() {
+  resetCustomerForm();
+  $('customerEnterpriseMode').value = 'new';
+  updateCustomerEnterpriseMode();
+  switchTab('subscriptionOrders');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  setTimeout(() => $('newCustomerEnterpriseName').focus(), 0);
+}
 function prepareRenewCustomer(id) {
   const customer = state.customers.find((item) => item.id === id);
   if (!customer) return;
@@ -1409,6 +1418,7 @@ $('resetEnterpriseFormBtn').onclick = () => resetEnterpriseForm();
 $('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
 $('createCustomerBtn').onclick = () => createCustomer().catch(showDebug);
 $('resetCustomerFormBtn').onclick = () => resetCustomerForm();
+$('addCustomerBtn').onclick = () => prepareNewCustomer();
 $('loadCustomersBtn').onclick = () => loadCustomers().catch(showDebug);
 $('backCustomersBtn').onclick = () => backToCustomerAccounts();
 $('refreshCustomerDetailBtn').onclick = () => loadCustomerDetail().catch(showDebug);
