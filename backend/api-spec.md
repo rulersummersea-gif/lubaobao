@@ -166,6 +166,21 @@
 ### GET `/subscription-orders/{id}/payments`
 查询订单的全部收款记录。
 
+### POST `/subscription-orders/{id}/cancel`
+取消尚未收款的待付款订单，需要平台管理员权限。已有部分收款的订单不能直接取消。
+```json
+{ "reason": "客户暂缓采购" }
+```
+
+### POST `/subscription-orders/{id}/refund`
+退回订单的全部已收金额并关闭订单，需要平台管理员权限；支持部分收款订单和已付款订单。接口会撤销已生成的服务周期，并将该订单下未激活的材料包回收作废；存在已激活或已绑定用户的材料包时会拒绝退款，需先完成解绑和作废。
+```json
+{ "reason": "合同终止，双方确认退款" }
+```
+
+### GET `/subscription-orders/{id}/events`
+查询订单取消、退款等异常操作流水，包括原因、金额、操作人与时间。
+
 ### GET `/customers/{id}/periods`
 查询该客户历次服务周期、季度发包状态及材料包数量。
 

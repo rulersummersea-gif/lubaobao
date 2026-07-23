@@ -38,7 +38,7 @@ WX_CODE_ENV_VERSION = os.getenv("WX_CODE_ENV_VERSION", "release")
 PASSWORD_ITERATIONS = 200000
 WX_ACCESS_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
-app = FastAPI(title="Lubaobao API", version="0.12.0-customer-enterprise-flow")
+app = FastAPI(title="Lubaobao API", version="0.13.0-order-exceptions")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -730,6 +730,42 @@ def ensure_customer_schema(conn) -> None:
         )
 
 
+def ensure_subscription_order_event_schema(conn) -> None:
+    if DB_DRIVER == "mysql":
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscription_order_events (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              order_id BIGINT NOT NULL,
+              event_type VARCHAR(32) NOT NULL,
+              amount DECIMAL(12,2) NULL,
+              reason VARCHAR(512) NOT NULL,
+              operator_id BIGINT NULL,
+              operator_name VARCHAR(64) NULL,
+              created_at DATETIME NOT NULL,
+              KEY idx_subscription_order_events_order (order_id, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+    else:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS subscription_order_events (
+              id INTEGER PRIMARY KEY,
+              order_id INTEGER NOT NULL,
+              event_type TEXT NOT NULL,
+              amount REAL,
+              reason TEXT NOT NULL,
+              operator_id INTEGER,
+              operator_name TEXT,
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_subscription_order_events_order
+            ON subscription_order_events(order_id, id);
+            """
+        )
+
+
 def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "water_quality_limits", "updated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
@@ -763,6 +799,7 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "customer_account_periods", "status", "VARCHAR(32) NOT NULL DEFAULT 'pending_fulfillment'" if DB_DRIVER == "mysql" else "TEXT NOT NULL DEFAULT 'pending_fulfillment'")
     ensure_column(conn, "customer_account_periods", "allocated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_subscription_indexes(conn)
+    ensure_subscription_order_event_schema(conn)
     ensure_pack_qr_index(conn)
     ensure_onboarding_schema(conn)
     ensure_pack_binding_event_schema(conn)
@@ -1266,6 +1303,10 @@ class PaymentConfirmReq(BaseModel):
     note: Optional[str] = None
 
 
+class SubscriptionOrderActionReq(BaseModel):
+    reason: str = Field(min_length=2, max_length=500)
+
+
 class CustomerStatusReq(BaseModel):
     status: str
 
@@ -1395,7 +1436,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "customer-detail", "inline-enterprise-create", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["subscription-orders", "payment-records", "order-cancellation", "order-refunds", "order-event-audit", "quarterly-fulfillment", "customer-accounts", "customer-detail", "inline-enterprise-create", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -2591,6 +2632,72 @@ def get_subscription_order(conn, order_id: int) -> dict:
     )
 
 
+def record_subscription_order_event(conn, order_id: int, event_type: str, reason: str, current_user: dict, amount: Optional[float] = None) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO subscription_order_events(
+          order_id, event_type, amount, reason, operator_id, operator_name, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            order_id,
+            event_type,
+            amount,
+            reason.strip(),
+            current_user.get("id"),
+            current_user.get("name") or current_user.get("username"),
+            now(),
+        ),
+    )
+    return cur.lastrowid
+
+
+def refresh_customer_service_state(conn, customer_id: int) -> None:
+    periods = [
+        row_to_dict(row)
+        for row in conn.execute(
+            """
+            SELECT cp.id, cp.start_date, cp.end_date, cp.account_type
+            FROM customer_account_periods cp
+            JOIN subscription_orders so ON so.id = cp.order_id
+            WHERE cp.customer_id = ? AND so.status = 'paid' AND cp.status != 'revoked'
+            ORDER BY cp.start_date, cp.id
+            """,
+            (customer_id,),
+        ).fetchall()
+    ]
+    if not periods:
+        pending = conn.execute(
+            "SELECT id FROM subscription_orders WHERE customer_id = ? AND status = 'pending_payment' LIMIT 1",
+            (customer_id,),
+        ).fetchone()
+        conn.execute(
+            "UPDATE customer_accounts SET status = ?, current_period_id = NULL, updated_at = ? WHERE id = ?",
+            ("pending_payment" if pending else "disabled", now(), customer_id),
+        )
+        return
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    current = next((period for period in periods if period["start_date"] <= today <= period["end_date"]), None)
+    if not current:
+        current = next((period for period in periods if period["start_date"] > today), periods[-1])
+    conn.execute(
+        """
+        UPDATE customer_accounts
+        SET account_type = ?, status = 'active', current_period_id = ?, start_date = ?, end_date = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            current["account_type"],
+            current["id"],
+            min(period["start_date"] for period in periods),
+            max(period["end_date"] for period in periods),
+            now(),
+            customer_id,
+        ),
+    )
+
+
 def create_subscription_order(conn, customer: dict, account_type: str, start_date: date, term_quarters: int, amount_due: float, contract_no: Optional[str], sales_owner: Optional[str], current_user: dict) -> dict:
     customer_policy(account_type)
     if account_type == "trial":
@@ -2832,8 +2939,13 @@ def confirm_subscription_payment(order_id: int, req: PaymentConfirmReq, authoriz
         order = get_subscription_order(conn, order_id)
         if not order:
             raise HTTPException(status_code=404, detail="订阅订单不存在")
+        if order["status"] != "pending_payment":
+            raise HTTPException(status_code=409, detail="当前订单状态不能继续收款")
         if order["payment_status"] == "paid":
             raise HTTPException(status_code=409, detail="该订单已确认全额收款")
+        remaining = float(order.get("amount_due") or 0) - float(order.get("amount_paid") or 0)
+        if req.amount > remaining:
+            raise HTTPException(status_code=400, detail=f"本次收款超过剩余应收金额 {remaining:.2f}")
         paid_at = req.paidAt or now()
         conn.execute(
             """
@@ -2866,6 +2978,126 @@ def list_subscription_payments(order_id: int, authorization: Optional[str] = Hea
         ensure_enterprise_scope(current_user, order["enterprise_id"])
         rows = conn.execute("SELECT id, amount, paid_at AS paidAt, payment_method AS paymentMethod, transaction_no AS transactionNo, note, confirmed_by_name AS confirmedByName, created_at AS createdAt FROM payment_records WHERE order_id = ? ORDER BY id DESC", (order_id,))
         return [row_to_dict(row) for row in rows]
+
+
+@app.get("/subscription-orders/{order_id}/events")
+def list_subscription_order_events(order_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        order = get_subscription_order(conn, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="订阅订单不存在")
+        ensure_enterprise_scope(current_user, order["enterprise_id"])
+        rows = conn.execute(
+            """
+            SELECT id, order_id AS orderId, event_type AS eventType, amount, reason,
+                   operator_id AS operatorId, operator_name AS operatorName, created_at AS createdAt
+            FROM subscription_order_events WHERE order_id = ? ORDER BY id DESC
+            """,
+            (order_id,),
+        ).fetchall()
+        return [
+            {**row_to_dict(row), "amount": decimal_to_number(row_to_dict(row).get("amount"))}
+            for row in rows
+        ]
+
+
+@app.post("/subscription-orders/{order_id}/cancel")
+def cancel_subscription_order(order_id: int, req: SubscriptionOrderActionReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin",))
+    reason = req.reason.strip()
+    with db() as conn:
+        order = get_subscription_order(conn, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="订阅订单不存在")
+        if order["status"] != "pending_payment":
+            raise HTTPException(status_code=409, detail="只有待付款订单可以取消")
+        if float(order.get("amount_paid") or 0) > 0:
+            raise HTTPException(status_code=409, detail="订单已有收款记录，请使用退款功能退回已收金额并关闭订单")
+        conn.execute(
+            "UPDATE subscription_orders SET status = 'cancelled' WHERE id = ?",
+            (order_id,),
+        )
+        record_subscription_order_event(conn, order_id, "cancelled", reason, current_user)
+        refresh_customer_service_state(conn, order["customer_id"])
+        updated = get_subscription_order(conn, order_id)
+        customer = get_customer_account(conn, order["customer_id"])
+    return {"order": order_response(updated), "customer": customer_account_response(customer)}
+
+
+@app.post("/subscription-orders/{order_id}/refund")
+def refund_subscription_order(order_id: int, req: SubscriptionOrderActionReq, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin",))
+    reason = req.reason.strip()
+    with db() as conn:
+        order = get_subscription_order(conn, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="订阅订单不存在")
+        refundable = (
+            (order["status"] == "paid" and order["payment_status"] == "paid")
+            or (order["status"] == "pending_payment" and order["payment_status"] == "partial")
+        )
+        if not refundable:
+            raise HTTPException(status_code=409, detail="只有部分收款或已付款订单可以执行退款")
+        packs = [
+            row_to_dict(row)
+            for row in conn.execute(
+                """
+                SELECT p.*,
+                       (SELECT COUNT(*) FROM user_material_pack_bindings ub
+                        WHERE ub.material_pack_id = p.id AND ub.status = 'active') AS active_binding_count
+                FROM material_packs p
+                JOIN customer_account_periods cp ON cp.id = p.customer_period_id
+                WHERE cp.order_id = ?
+                """,
+                (order_id,),
+            ).fetchall()
+        ]
+        blocked = [pack["code"] for pack in packs if pack["status"] == "activated" or int(pack.get("active_binding_count") or 0) > 0]
+        if blocked:
+            preview = "、".join(blocked[:3])
+            raise HTTPException(status_code=409, detail=f"材料包 {preview} 已激活或已绑定用户，请先解绑并作废后再退款")
+
+        affected_at = now()
+        for pack in packs:
+            conn.execute(
+                "UPDATE user_material_pack_bindings SET status = 'inactive', unbound_at = ? WHERE material_pack_id = ? AND status = 'active'",
+                (affected_at, pack["id"]),
+            )
+            conn.execute(
+                "UPDATE material_packs SET status = 'invalid', boiler_id = NULL WHERE id = ?",
+                (pack["id"],),
+            )
+            pack["status"] = "invalid"
+            pack["boiler_id"] = None
+            record_pack_binding_event(
+                conn,
+                pack,
+                "invalidate",
+                "success",
+                "order_refund",
+                user=current_user,
+                detail=f"订单 {order['order_no']} 退款，材料包回收作废",
+            )
+        conn.execute(
+            "UPDATE customer_account_periods SET status = 'revoked' WHERE order_id = ?",
+            (order_id,),
+        )
+        refund_amount = float(order.get("amount_paid") or 0)
+        conn.execute(
+            "UPDATE subscription_orders SET status = 'refunded', payment_status = 'refunded' WHERE id = ?",
+            (order_id,),
+        )
+        record_subscription_order_event(conn, order_id, "refunded", reason, current_user, refund_amount)
+        refresh_customer_service_state(conn, order["customer_id"])
+        updated = get_subscription_order(conn, order_id)
+        customer = get_customer_account(conn, order["customer_id"])
+    return {
+        "order": order_response(updated),
+        "customer": customer_account_response(customer),
+        "revokedPeriodCount": int(updated.get("period_count") or 0),
+        "reclaimedPackCount": len(packs),
+    }
 
 
 @app.post("/customer-periods/{period_id}/allocate-packs")

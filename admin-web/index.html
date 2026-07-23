@@ -226,7 +226,7 @@
       <div class="card">
         <div class="row">
           <h2 style="margin-right:auto">订阅订单与收款</h2>
-          <select id="orderStatusFilter"><option value="">全部订单</option><option value="pending_payment">待付款</option><option value="paid">已付款</option></select>
+          <select id="orderStatusFilter"><option value="">全部订单</option><option value="pending_payment">待付款</option><option value="paid">已付款</option><option value="cancelled">已取消</option><option value="refunded">已退款</option></select>
           <button class="secondary" id="loadOrdersBtn">刷新订单</button>
         </div>
         <table><thead><tr><th>订单</th><th>客户</th><th>订阅方案</th><th>服务期限</th><th>收款</th><th>状态</th><th>操作</th></tr></thead><tbody id="ordersBody"></tbody></table>
@@ -247,6 +247,10 @@
         <div id="customerPeriods" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0">
           <div class="row"><h2 id="customerPeriodsTitle" style="margin-right:auto">服务周期记录</h2><button class="secondary" id="closeCustomerPeriodsBtn">关闭</button></div>
           <table><thead><tr><th>订单/周期</th><th>档位</th><th>有效期</th><th>材料包</th><th>发包状态</th><th>操作</th></tr></thead><tbody id="customerPeriodsBody"></tbody></table>
+        </div>
+        <div id="orderEventsPanel" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0">
+          <div class="row"><h2 id="orderEventsTitle" style="margin-right:auto">订单异常记录</h2><button class="secondary" id="closeOrderEventsBtn">关闭</button></div>
+          <table><thead><tr><th>操作时间</th><th>类型</th><th>退款金额</th><th>原因</th><th>操作人</th></tr></thead><tbody id="orderEventsBody"></tbody></table>
         </div>
       </div>
     </section>
@@ -655,8 +659,9 @@ function syncEnterpriseSelects() {
 function customerTypeText(type) { return type === 'subscription' ? '订阅账户' : '试用账户'; }
 function customerStatusText(status) { return ({ active: '服务中', pending_payment: '待付款', expired: '已到期', disabled: '已停用' })[status] || status || '-'; }
 function orderStatusText(status) { return ({ pending_payment: '待付款', paid: '已付款', cancelled: '已取消', refunded: '已退款' })[status] || status || '-'; }
-function paymentStatusText(status) { return ({ unpaid: '未付款', partial: '部分付款', paid: '已付清' })[status] || status || '-'; }
-function periodStatusText(status) { return status === 'allocated' ? '已分配' : '待发包'; }
+function paymentStatusText(status) { return ({ unpaid: '未付款', partial: '部分付款', paid: '已付清', refunded: '已退款' })[status] || status || '-'; }
+function periodStatusText(status) { return ({ allocated: '已分配', pending_fulfillment: '待发包', revoked: '已撤销' })[status] || status || '-'; }
+function orderEventText(type) { return ({ cancelled: '取消订单', refunded: '订单退款' })[type] || type || '-'; }
 async function loadCustomers() {
   state.customers = await api('/customers');
   renderCustomers();
@@ -741,8 +746,12 @@ function renderOrders() {
       <td>￥${Number(item.amountPaid).toFixed(2)} / ￥${Number(item.amountDue).toFixed(2)}<div class="muted">${paymentStatusText(item.paymentStatus)}</div></td>
       <td>${tag(orderStatusText(item.status))}<div class="muted">${esc(item.salesOwner || '-')}</div></td>
       <td>
-        <button onclick="openPaymentPanel(${item.id}).catch(showDebug)">${item.paymentStatus === 'paid' ? '收款记录' : '确认收款'}</button>
+        ${item.status === 'pending_payment' ? `<button onclick="openPaymentPanel(${item.id}).catch(showDebug)">确认收款</button>` : ''}
+        ${item.paymentStatus === 'paid' || Number(item.amountPaid) > 0 ? `<button class="secondary" onclick="openPaymentPanel(${item.id}).catch(showDebug)">收款记录</button>` : ''}
         ${item.periodCount ? `<button class="secondary" onclick="showCustomerPeriods(${item.customerId})">发包任务</button>` : ''}
+        ${item.status === 'pending_payment' && Number(item.amountPaid) === 0 ? `<button class="warn" onclick="cancelOrder(${item.id}).catch(showDebug)">取消订单</button>` : ''}
+        ${item.status === 'paid' || (item.status === 'pending_payment' && item.paymentStatus === 'partial') ? `<button class="danger" onclick="refundOrder(${item.id}).catch(showDebug)">${item.paymentStatus === 'partial' ? '退款并关闭' : '退款'}</button>` : ''}
+        ${item.status === 'cancelled' || item.status === 'refunded' ? `<button class="secondary" onclick="showOrderEvents(${item.id}).catch(showDebug)">异常记录</button>` : ''}
       </td>
     </tr>`).join('');
   if (!orders.length) $('ordersBody').innerHTML = '<tr><td colspan="7" class="empty">暂无符合条件的订阅订单</td></tr>';
@@ -852,9 +861,11 @@ async function showCustomerPeriods(id) {
   const customer = state.customers.find((item) => item.id === id);
   const periods = await api(`/customers/${id}/periods`);
   $('customerPeriodsTitle').textContent = `${customer?.enterpriseName || '客户'} · 服务周期记录`;
-  $('customerPeriodsBody').innerHTML = periods.map((period) => `<tr><td>${esc(period.orderNo || '-')}<div class="muted">第 ${period.periodNo} 期</div></td><td>${customerTypeText(period.accountType)}</td><td>${period.startDate} 至 ${period.endDate}</td><td>${period.allocatedPackCount} / ${period.packCount} 包</td><td>${tag(periodStatusText(period.status))}<div class="muted">${period.allocatedAt || '-'}</div></td><td>${period.status === 'pending_fulfillment' ? `<button onclick="allocatePeriodPacks(${period.id}, ${id})">分配材料包</button>` : '已完成'}</td></tr>`).join('');
+  $('customerPeriodsBody').innerHTML = periods.map((period) => `<tr><td>${esc(period.orderNo || '-')}<div class="muted">第 ${period.periodNo} 期</div></td><td>${customerTypeText(period.accountType)}</td><td>${period.startDate} 至 ${period.endDate}</td><td>${period.allocatedPackCount} / ${period.packCount} 包</td><td>${tag(periodStatusText(period.status))}<div class="muted">${period.allocatedAt || '-'}</div></td><td>${period.status === 'pending_fulfillment' ? `<button onclick="allocatePeriodPacks(${period.id}, ${id})">分配材料包</button>` : period.status === 'revoked' ? '已撤销' : '已完成'}</td></tr>`).join('');
   if (!periods.length) $('customerPeriodsBody').innerHTML = '<tr><td colspan="6" class="empty">付款确认后才会生成服务周期和发包任务</td></tr>';
   switchTab('subscriptionOrders');
+  $('paymentPanel').style.display = 'none';
+  $('orderEventsPanel').style.display = 'none';
   $('customerPeriods').style.display = 'block';
 }
 async function allocatePeriodPacks(periodId, customerId) {
@@ -868,14 +879,17 @@ async function openPaymentPanel(orderId) {
   if (!order) return;
   const payments = await api(`/subscription-orders/${orderId}/payments`);
   $('paymentOrderId').value = order.id;
-  $('paymentTitle').textContent = `${order.paymentStatus === 'paid' ? '收款记录' : '确认收款'}：${order.orderNo}`;
-  $('paymentFormFields').style.display = order.paymentStatus === 'paid' ? 'none' : 'flex';
+  const canReceive = order.status === 'pending_payment';
+  $('paymentTitle').textContent = `${canReceive ? '确认收款' : '收款记录'}：${order.orderNo}`;
+  $('paymentFormFields').style.display = canReceive ? 'flex' : 'none';
   $('paymentAmount').value = Math.max(0, Number(order.amountDue) - Number(order.amountPaid)).toFixed(2);
   $('paymentPaidAt').value = '';
   $('paymentTransactionNo').value = '';
   $('paymentNote').value = '';
   $('paymentHistoryBody').innerHTML = payments.map((payment) => `<tr><td>${payment.paidAt || '-'}</td><td>￥${Number(payment.amount).toFixed(2)}</td><td>${esc(payment.paymentMethod || '-')}</td><td>${esc(payment.transactionNo || '-')}</td><td>${esc(payment.confirmedByName || '-')}</td></tr>`).join('');
   if (!payments.length) $('paymentHistoryBody').innerHTML = '<tr><td colspan="5" class="empty">暂无收款记录</td></tr>';
+  $('customerPeriods').style.display = 'none';
+  $('orderEventsPanel').style.display = 'none';
   $('paymentPanel').style.display = 'block';
 }
 async function confirmPayment() {
@@ -891,6 +905,35 @@ async function confirmPayment() {
   $('paymentPanel').style.display = 'none';
   await Promise.all([loadCustomers(), loadOrders()]);
   alert(result.fullyPaid ? `收款完成，已生成 ${result.periods.length} 个季度发包任务。` : '已记录部分收款，付清后自动生成发包任务。');
+}
+async function cancelOrder(orderId) {
+  const reason = prompt('请输入取消原因（至少2个字）');
+  if (reason === null) return;
+  if (reason.trim().length < 2) return alert('请填写明确的取消原因。');
+  if (!confirm('确认取消该待付款订单？取消后不能继续收款。')) return;
+  await api(`/subscription-orders/${orderId}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+  await Promise.all([loadCustomers(), loadOrders()]);
+  await showOrderEvents(orderId);
+  alert('订单已取消，操作原因已记录。');
+}
+async function refundOrder(orderId) {
+  const reason = prompt('请输入退款原因（至少2个字）');
+  if (reason === null) return;
+  if (reason.trim().length < 2) return alert('请填写明确的退款原因。');
+  if (!confirm('确认执行全额退款？未激活材料包将作废，相关服务周期将撤销。')) return;
+  const result = await api(`/subscription-orders/${orderId}/refund`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+  await Promise.all([loadCustomers(), loadOrders(), loadPacks()]);
+  await showOrderEvents(orderId);
+  alert(`退款完成，已撤销 ${result.revokedPeriodCount} 个服务周期，回收 ${result.reclaimedPackCount} 个材料包。`);
+}
+async function showOrderEvents(orderId) {
+  const order = state.orders.find((item) => item.id === Number(orderId));
+  const events = await api(`/subscription-orders/${orderId}/events`);
+  $('orderEventsTitle').textContent = `${order?.orderNo || '订单'} · 异常记录`;
+  $('orderEventsBody').innerHTML = events.map((item) => `<tr><td class="nowrap">${esc(String(item.createdAt || '').replace('T', ' ').slice(0, 19))}</td><td>${tag(orderEventText(item.eventType))}</td><td>${item.amount == null ? '-' : '￥' + Number(item.amount).toFixed(2)}</td><td>${esc(item.reason)}</td><td>${esc(item.operatorName || '-')}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">暂无异常操作记录</td></tr>';
+  $('paymentPanel').style.display = 'none';
+  $('customerPeriods').style.display = 'none';
+  $('orderEventsPanel').style.display = 'block';
 }
 function resetEnterpriseForm() {
   $('enterpriseId').value = '';
@@ -1435,6 +1478,7 @@ $('customerAccountType').onchange = () => {
 $('confirmPaymentBtn').onclick = () => confirmPayment().catch(showDebug);
 $('closePaymentBtn').onclick = () => $('paymentPanel').style.display = 'none';
 $('closeCustomerPeriodsBtn').onclick = () => $('customerPeriods').style.display = 'none';
+$('closeOrderEventsBtn').onclick = () => $('orderEventsPanel').style.display = 'none';
 $('createPackBtn').onclick = () => createPack().catch(showDebug);
 $('loadPacksBtn').onclick = () => loadPacks().catch(showDebug);
 $('packEnterpriseFilter').onchange = () => loadPacks().catch(showDebug);
