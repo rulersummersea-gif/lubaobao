@@ -38,7 +38,7 @@ WX_CODE_ENV_VERSION = os.getenv("WX_CODE_ENV_VERSION", "release")
 PASSWORD_ITERATIONS = 200000
 WX_ACCESS_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
-app = FastAPI(title="Lubaobao API", version="0.10.0-binding-audit")
+app = FastAPI(title="Lubaobao API", version="0.11.0-customer-detail")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1393,7 +1393,7 @@ def root():
         "service": "lubaobao-api",
         "version": app.version,
         "rbac": True,
-        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
+        "features": ["subscription-orders", "payment-records", "quarterly-fulfillment", "customer-accounts", "customer-detail", "pack-inventory", "pack-qr", "miniprogram-code", "scene-binding", "binding-audit", "image-upload", "inspection-submit", "record-detail", "retest-tasks"],
     }
 
 
@@ -2878,6 +2878,117 @@ def list_customer_periods(customer_id: int, authorization: Optional[str] = Heade
             (customer_id,),
         )
         return [row_to_dict(row) for row in rows]
+
+
+@app.get("/customers/{customer_id}/detail")
+def get_customer_detail(customer_id: int, authorization: Optional[str] = Header(None)):
+    current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    with db() as conn:
+        customer = get_customer_account(conn, customer_id)
+        if not customer:
+            raise HTTPException(status_code=404, detail="客户账户不存在")
+        ensure_enterprise_scope(current_user, customer["enterprise_id"])
+        enterprise_id = customer["enterprise_id"]
+        orders = conn.execute(
+            """
+            SELECT so.*, ca.enterprise_id, e.name AS enterprise_name,
+                   (SELECT COUNT(*) FROM customer_account_periods cp WHERE cp.order_id = so.id) AS period_count
+            FROM subscription_orders so
+            JOIN customer_accounts ca ON ca.id = so.customer_id
+            LEFT JOIN enterprises e ON e.id = ca.enterprise_id
+            WHERE so.customer_id = ? ORDER BY so.id DESC LIMIT 10
+            """,
+            (customer_id,),
+        ).fetchall()
+        periods = conn.execute(
+            """
+            SELECT cp.id, cp.account_type AS accountType, cp.start_date AS startDate,
+                   cp.end_date AS endDate, cp.pack_count AS packCount, cp.period_no AS periodNo,
+                   cp.status, so.order_no AS orderNo, cp.allocated_at AS allocatedAt,
+                   (SELECT COUNT(*) FROM material_packs p WHERE p.customer_period_id = cp.id) AS allocatedPackCount
+            FROM customer_account_periods cp
+            LEFT JOIN subscription_orders so ON so.id = cp.order_id
+            WHERE cp.customer_id = ? ORDER BY cp.id DESC LIMIT 12
+            """,
+            (customer_id,),
+        ).fetchall()
+        packs = conn.execute(
+            """
+            SELECT p.id, p.enterprise_id AS enterpriseId, p.code, p.type, p.status,
+                   p.boiler_id AS boilerId, b.name AS boilerName, p.expire_at AS expireAt,
+                   e.name AS enterpriseName, p.batch_no AS batchNo, p.sales_order_no AS salesOrderNo,
+                   p.warehouse_location AS warehouseLocation, p.production_date AS productionDate,
+                   p.qr_token AS qrToken, p.qr_generated_at AS qrGeneratedAt, p.printed_at AS printedAt,
+                   p.created_by_name AS createdByName, p.created_at AS createdAt,
+                   (SELECT COUNT(*) FROM user_material_pack_bindings ub
+                    WHERE ub.material_pack_id = p.id AND ub.status = 'active') AS userBindingCount
+            FROM material_packs p
+            LEFT JOIN boilers b ON b.id = p.boiler_id
+            LEFT JOIN enterprises e ON e.id = p.enterprise_id
+            WHERE p.enterprise_id = ? ORDER BY p.id DESC LIMIT 20
+            """,
+            (enterprise_id,),
+        ).fetchall()
+        boilers = conn.execute(
+            """
+            SELECT id, enterprise_id AS enterpriseId, name, device_code AS deviceCode,
+                   product_no AS productNo, model, device_type AS deviceType,
+                   rated_capacity AS ratedCapacity, rated_pressure AS ratedPressure, status
+            FROM boilers WHERE enterprise_id = ? ORDER BY id DESC
+            """,
+            (enterprise_id,),
+        ).fetchall()
+        inspections = conn.execute(
+            """
+            SELECT i.id AS inspectionId, i.boiler_id AS boilerId, b.name AS boilerName,
+                   i.status, i.score, i.summary, i.created_at AS createdAt,
+                   i.inspector_name AS inspectorName
+            FROM inspections i
+            LEFT JOIN boilers b ON b.id = i.boiler_id
+            WHERE i.enterprise_id = ? ORDER BY i.id DESC LIMIT 10
+            """,
+            (enterprise_id,),
+        ).fetchall()
+        service_tasks = conn.execute(
+            """
+            SELECT id, inspection_id AS inspectionId, boiler_id AS boilerId, boiler_name AS boilerName,
+                   level, title, field_action AS fieldAction, service_advice AS serviceAdvice,
+                   status, created_at AS createdAt
+            FROM retest_tasks
+            WHERE enterprise_id = ? AND status NOT IN ('done', 'no_retest')
+            ORDER BY id DESC LIMIT 10
+            """,
+            (enterprise_id,),
+        ).fetchall()
+        counts = row_to_dict(
+            conn.execute(
+                """
+                SELECT
+                  (SELECT COUNT(*) FROM boilers WHERE enterprise_id = ?) AS boiler_count,
+                  (SELECT COUNT(*) FROM material_packs WHERE enterprise_id = ?) AS pack_count,
+                  (SELECT COUNT(*) FROM material_packs WHERE enterprise_id = ? AND status = 'activated') AS active_pack_count,
+                  (SELECT COUNT(*) FROM inspections WHERE enterprise_id = ?) AS inspection_count,
+                  (SELECT COUNT(*) FROM retest_tasks WHERE enterprise_id = ? AND status NOT IN ('done', 'no_retest')) AS pending_service_count
+                """,
+                (enterprise_id, enterprise_id, enterprise_id, enterprise_id, enterprise_id),
+            ).fetchone()
+        )
+    return {
+        "customer": customer_account_response(customer),
+        "summary": {
+            "boilerCount": int(counts.get("boiler_count") or 0),
+            "packCount": int(counts.get("pack_count") or 0),
+            "activePackCount": int(counts.get("active_pack_count") or 0),
+            "inspectionCount": int(counts.get("inspection_count") or 0),
+            "pendingServiceCount": int(counts.get("pending_service_count") or 0),
+        },
+        "orders": [order_response(row) for row in orders],
+        "periods": [row_to_dict(row) for row in periods],
+        "packs": [material_pack_response(row) for row in packs],
+        "boilers": [row_to_dict(row) for row in boilers],
+        "inspections": [row_to_dict(row) for row in inspections],
+        "serviceTasks": [row_to_dict(row) for row in service_tasks],
+    }
 
 
 @app.patch("/customers/{customer_id}/status")

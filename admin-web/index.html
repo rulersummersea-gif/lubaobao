@@ -159,6 +159,47 @@
       </div>
     </section>
 
+    <section id="customerDetail" class="tab">
+      <div class="card">
+        <div class="row">
+          <div style="margin-right:auto">
+            <h2 id="customerDetailName" style="margin:0 0 6px">客户详情</h2>
+            <div class="muted" id="customerDetailContact">-</div>
+          </div>
+          <button class="secondary" id="backCustomersBtn">返回客户账户</button>
+          <button class="secondary" id="refreshCustomerDetailBtn">刷新详情</button>
+        </div>
+        <div class="detail-grid" id="customerDetailBase" style="margin-top:14px"></div>
+      </div>
+      <div class="grid" style="margin-bottom:14px">
+        <div class="kpi"><span>锅炉数量</span><b id="detailBoilerCount">-</b></div>
+        <div class="kpi"><span>材料包总数</span><b id="detailPackCount">-</b></div>
+        <div class="kpi"><span>已激活材料包</span><b id="detailActivePackCount">-</b></div>
+        <div class="kpi"><span>巡检记录</span><b id="detailInspectionCount">-</b></div>
+        <div class="kpi"><span>待处理服务</span><b id="detailServiceCount">-</b></div>
+      </div>
+      <div class="card">
+        <h2>订阅订单</h2>
+        <table><thead><tr><th>订单</th><th>方案</th><th>服务期限</th><th>收款</th><th>状态</th><th>销售负责人</th></tr></thead><tbody id="customerDetailOrders"></tbody></table>
+      </div>
+      <div class="card">
+        <h2>材料包</h2>
+        <table><thead><tr><th>编码</th><th>类型</th><th>状态</th><th>绑定锅炉</th><th>有效期</th><th>批次</th></tr></thead><tbody id="customerDetailPacks"></tbody></table>
+      </div>
+      <div class="card">
+        <h2>锅炉档案</h2>
+        <table><thead><tr><th>锅炉</th><th>设备代码</th><th>产品编号</th><th>型号</th><th>额定容量</th><th>额定压力</th><th>状态</th></tr></thead><tbody id="customerDetailBoilers"></tbody></table>
+      </div>
+      <div class="card">
+        <h2>近期巡检</h2>
+        <table><thead><tr><th>时间</th><th>锅炉</th><th>状态</th><th>评分</th><th>摘要</th><th>巡检人</th><th>操作</th></tr></thead><tbody id="customerDetailInspections"></tbody></table>
+      </div>
+      <div class="card">
+        <h2>待处理服务</h2>
+        <table><thead><tr><th>时间</th><th>锅炉</th><th>风险等级</th><th>问题</th><th>现场处置</th><th>服务意见</th><th>状态</th></tr></thead><tbody id="customerDetailTasks"></tbody></table>
+      </div>
+    </section>
+
     <section id="subscriptionOrders" class="tab">
       <div class="card">
         <h2 id="customerFormTitle">新建客户订阅订单</h2>
@@ -472,11 +513,13 @@ const state = {
   customers: [],
   orders: [],
   bindingEvents: [],
+  currentCustomerId: null,
   currentTab: 'dashboard',
 };
 const TAB_META = {
   dashboard: ['运营概览', '查看客户、资产和巡检运行情况'],
   customerAccounts: ['客户账户', '管理试用客户、订阅客户和服务状态'],
+  customerDetail: ['客户详情', '查看该客户的订阅、材料包、锅炉、巡检与服务记录'],
   subscriptionOrders: ['订阅与收款', '创建订阅订单、确认收款并安排季度发包'],
   enterprises: ['企业档案', '维护客户企业主体信息'],
   packs: ['材料包管理', '办理材料包入库、分配、绑定和二维码打印'],
@@ -546,10 +589,12 @@ function switchTab(id, shouldLoad = true) {
   if (!TAB_META[id]) id = 'dashboard';
   state.currentTab = id;
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.id === id));
-  document.querySelectorAll('.nav button').forEach((el) => el.classList.toggle('active', el.dataset.tab === id));
+  const navId = id === 'customerDetail' ? 'customerAccounts' : id;
+  document.querySelectorAll('.nav button').forEach((el) => el.classList.toggle('active', el.dataset.tab === navId));
   $('pageTitle').textContent = TAB_META[id][0];
   $('pageSubtitle').textContent = TAB_META[id][1];
-  history.replaceState(null, '', '#' + id);
+  const hashValue = id === 'customerDetail' && state.currentCustomerId ? `${id}/${state.currentCustomerId}` : id;
+  history.replaceState(null, '', '#' + hashValue);
   window.scrollTo({ top: 0 });
   if (state.token && shouldLoad) loadTab(id).catch(showDebug);
 }
@@ -628,12 +673,53 @@ function renderCustomers() {
       <td>${esc(item.contactName || '-')}<div class="muted">${esc(item.contactPhone || '-')}</div></td>
       <td>${tag(customerStatusText(item.effectiveStatus))}</td>
       <td>
+        <button onclick="showCustomerDetail(${item.id})">客户详情</button>
         <button class="secondary" onclick="showCustomerPeriods(${item.id})">周期记录</button>
         ${item.status !== 'pending_payment' ? `<button onclick="prepareRenewCustomer(${item.id})">新建续费订单</button>` : ''}
         ${item.status === 'disabled' ? `<button class="secondary" onclick="setCustomerStatus(${item.id}, 'active')">启用</button>` : `<button class="warn" onclick="setCustomerStatus(${item.id}, 'disabled')">停用</button>`}
       </td>
     </tr>`).join('');
   if (!customers.length) $('customersBody').innerHTML = '<tr><td colspan="7" class="empty">暂无符合条件的客户账户</td></tr>';
+}
+function detailEmpty(columns, text) {
+  return `<tr><td colspan="${columns}" class="empty">${text}</td></tr>`;
+}
+async function showCustomerDetail(id) {
+  state.currentCustomerId = Number(id);
+  switchTab('customerDetail', false);
+  await loadCustomerDetail();
+}
+function backToCustomerAccounts() {
+  state.currentCustomerId = null;
+  switchTab('customerAccounts');
+}
+async function loadCustomerDetail() {
+  if (!state.currentCustomerId) {
+    switchTab('customerAccounts');
+    return;
+  }
+  const data = await api(`/customers/${state.currentCustomerId}/detail`);
+  const customer = data.customer;
+  const summary = data.summary;
+  $('customerDetailName').textContent = customer.enterpriseName;
+  $('customerDetailContact').textContent = `${customer.contactName || '未登记联系人'} · ${customer.contactPhone || '未登记电话'}`;
+  $('customerDetailBase').innerHTML = `
+    <div class="detail-cell"><span>账户档位</span><b>${esc(customerTypeText(customer.accountType))}</b></div>
+    <div class="detail-cell"><span>服务状态</span><b>${esc(customerStatusText(customer.effectiveStatus))}</b></div>
+    <div class="detail-cell"><span>服务期限</span><b>${esc(customer.startDate)} 至 ${esc(customer.endDate)}</b></div>
+    <div class="detail-cell"><span>服务周期</span><b>${customer.periodCount} 个</b></div>
+    <div class="detail-cell"><span>待付款订单</span><b>${customer.pendingOrderCount} 单</b></div>
+    <div class="detail-cell"><span>客户备注</span><b>${esc(customer.notes || '-')}</b></div>`;
+  $('detailBoilerCount').textContent = summary.boilerCount;
+  $('detailPackCount').textContent = summary.packCount;
+  $('detailActivePackCount').textContent = summary.activePackCount;
+  $('detailInspectionCount').textContent = summary.inspectionCount;
+  $('detailServiceCount').textContent = summary.pendingServiceCount;
+  $('customerDetailOrders').innerHTML = data.orders.map((item) => `<tr><td><b>${esc(item.orderNo)}</b><div class="muted">${esc(item.contractNo || '无合同编号')}</div></td><td>${esc(customerTypeText(item.accountType))}</td><td class="nowrap">${esc(item.plannedStartDate)} 至 ${esc(item.serviceEndDate)}</td><td>￥${Number(item.amountPaid).toFixed(2)} / ￥${Number(item.amountDue).toFixed(2)}</td><td>${tag(orderStatusText(item.status))}</td><td>${esc(item.salesOwner || '-')}</td></tr>`).join('') || detailEmpty(6, '暂无订阅订单');
+  $('customerDetailPacks').innerHTML = data.packs.map((item) => `<tr><td><b>${esc(item.code)}</b></td><td>${esc(item.type || '-')}</td><td>${tag(packStatusText(item.effectiveStatus || item.status))}</td><td>${esc(item.boilerName || '未绑定')}</td><td>${esc(item.expireAt || '-')}</td><td>${esc(item.batchNo || '-')}</td></tr>`).join('') || detailEmpty(6, '暂无材料包');
+  $('customerDetailBoilers').innerHTML = data.boilers.map((item) => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(item.deviceCode || '-')}</td><td>${esc(item.productNo || '-')}</td><td>${esc(item.model || '-')}</td><td>${esc(item.ratedCapacity || '-')}</td><td>${esc(item.ratedPressure || '-')}</td><td>${tag(item.status)}</td></tr>`).join('') || detailEmpty(7, '暂无锅炉档案');
+  $('customerDetailInspections').innerHTML = data.inspections.map((item) => `<tr><td class="nowrap">${esc(String(item.createdAt || '').replace('T', ' ').slice(0, 19))}</td><td>${esc(item.boilerName || '-')}</td><td>${tag(item.status)}</td><td>${item.score ?? '-'}</td><td>${esc(item.summary || '-')}</td><td>${esc(item.inspectorName || '-')}</td><td><button class="secondary" onclick="switchTab('inspections'); loadInspectionDetail(${item.inspectionId})">查看</button></td></tr>`).join('') || detailEmpty(7, '暂无巡检记录');
+  $('customerDetailTasks').innerHTML = data.serviceTasks.map((item) => `<tr><td class="nowrap">${esc(String(item.createdAt || '').replace('T', ' ').slice(0, 19))}</td><td>${esc(item.boilerName || '-')}</td><td>${esc(item.level || '-')}</td><td>${esc(item.title || '-')}</td><td>${esc(item.fieldAction || '-')}</td><td>${esc(item.serviceAdvice || '待服务人员补充')}</td><td>${tag(item.status)}</td></tr>`).join('') || detailEmpty(7, '暂无待处理服务');
 }
 function renderOrders() {
   const status = $('orderStatusFilter').value;
@@ -1249,6 +1335,7 @@ async function loadReport() {
 async function loadTab(id) {
   if (id === 'dashboard') return loadDashboard();
   if (id === 'customerAccounts') return loadCustomers();
+  if (id === 'customerDetail') return loadCustomerDetail();
   if (id === 'subscriptionOrders') {
     await loadEnterprises();
     return Promise.all([loadCustomers(), loadOrders()]);
@@ -1285,6 +1372,8 @@ $('loadEnterprisesBtn').onclick = () => loadEnterprises().catch(showDebug);
 $('createCustomerBtn').onclick = () => createCustomer().catch(showDebug);
 $('resetCustomerFormBtn').onclick = () => resetCustomerForm();
 $('loadCustomersBtn').onclick = () => loadCustomers().catch(showDebug);
+$('backCustomersBtn').onclick = () => backToCustomerAccounts();
+$('refreshCustomerDetailBtn').onclick = () => loadCustomerDetail().catch(showDebug);
 $('loadOrdersBtn').onclick = () => loadOrders().catch(showDebug);
 $('customerTypeFilter').onchange = () => renderCustomers();
 $('customerSearch').oninput = () => renderCustomers();
@@ -1331,7 +1420,10 @@ resetUserForm();
 resetCustomerForm();
 $('customerStartDate').value = new Date().toISOString().slice(0, 10);
 $('customerAccountType').onchange();
-switchTab((location.hash || '').slice(1), false);
+const initialHash = (location.hash || '').slice(1);
+const initialParts = initialHash.split('/');
+if (initialParts[0] === 'customerDetail') state.currentCustomerId = Number(initialParts[1] || 0) || null;
+switchTab(initialParts[0], false);
 if (state.token) loadTab(state.currentTab).catch(showDebug);
 </script>
 </body>

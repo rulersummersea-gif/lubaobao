@@ -125,6 +125,7 @@ GET  /subscription-orders
 POST /subscription-orders/{id}/confirm-payment
 GET  /subscription-orders/{id}/payments
 GET  /customers/{id}/periods
+GET  /customers/{id}/detail
 POST /customer-periods/{id}/allocate-packs
 PATCH /customers/{id}/status
 GET  /material-packs
