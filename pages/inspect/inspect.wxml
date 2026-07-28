@@ -17,14 +17,27 @@
     <view style="height:16rpx"></view>
     <view class="btn-secondary" bindtap="useTestPack">使用测试包 PACK-001</view>
     <view style="height:16rpx"></view>
-    <view class="btn-secondary" bindtap="chooseInspectionImage">拍照/选择图片</view>
+    <view class="btn-secondary" bindtap="chooseInspectionImage">{{previewImage ? '重新拍摄/选择照片' : '拍照/选择图片'}}</view>
     <view class="tip-box">请先选择锅炉、校验材料包，再拍摄检测图片发起巡检。</view>
     <view wx:if="{{previewImage}}" class="preview-box">
       <image class="preview-img" src="{{previewImage}}" mode="aspectFill"></image>
+      <view class="btn-secondary quality-check-button {{qualityChecking ? 'button-disabled' : ''}}" bindtap="checkPhotoQuality">
+        {{qualityChecking ? '正在检查照片' : (photoQuality ? '重新检查照片质量' : '检查照片质量')}}
+      </view>
     </view>
-    <view wx:if="{{photoQuality}}" class="tip-box">
-      照片质量：{{photoQuality.status === 'pass' ? '合格' : photoQuality.status === 'review' ? '需后台复核' : '不合格'}}（{{photoQuality.score}}分）
-      <block wx:for="{{photoQuality.messages}}" wx:key="*this"><view>{{item}}</view></block>
+    <view wx:if="{{photoQuality}}" class="quality-box quality-{{photoQuality.status}}">
+      <view class="quality-title">
+        照片质量：{{photoQuality.status === 'pass' ? '合格' : photoQuality.status === 'review' ? '建议复核' : '不合格'}}
+      </view>
+      <view class="quality-score">{{photoQuality.score}}分</view>
+      <view class="quality-summary">{{photoQuality.summary}}</view>
+      <view wx:if="{{photoQuality.width}}" class="quality-metrics">
+        {{photoQuality.width}}×{{photoQuality.height}}像素｜亮度 {{photoQuality.brightness}}｜对比度 {{photoQuality.contrast}}｜清晰度 {{photoQuality.sharpness}}
+      </view>
+      <block wx:for="{{photoQuality.flags}}" wx:key="code">
+        <view class="quality-issue quality-issue-{{item.severity}}">{{item.message}}</view>
+      </block>
+      <view wx:if="{{!photoQuality.canProceed}}" class="btn-primary retake-button" bindtap="chooseInspectionImage">重新拍摄</view>
     </view>
   </view>
 
@@ -43,6 +56,8 @@
   </view>
 
   <view class="card">
-    <view class="btn-primary {{submitting ? 'button-disabled' : ''}}" bindtap="startInspection">{{submitting ? '提交中' : (retestTask ? '提交复测' : '开始巡检')}}</view>
+    <view class="btn-primary {{submitting || qualityChecking || (photoQuality && !photoQuality.canProceed) ? 'button-disabled' : ''}}" bindtap="startInspection">
+      {{submitting ? '提交中' : qualityChecking ? '正在检查照片' : (photoQuality && !photoQuality.canProceed) ? '请先重新拍摄' : (retestTask ? '提交复测' : '开始巡检')}}
+    </view>
   </view>
 </view>

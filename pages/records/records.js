@@ -1,6 +1,7 @@
 // pages/records/records.js
 // 巡检记录列表页：展示历史记录，支持进入详情查看检测值和诊断建议。
 const { getRecords } = require('../../api/inspection')
+const { getState } = require('../../store/app-state')
 const ui = require('../../utils/ui')
 
 Page({
@@ -9,7 +10,9 @@ Page({
   async onShow() {
     try {
       ui.showLoading('加载记录')
-      const list = await getRecords()
+      const state = getState()
+      const boilerId = state.currentBoiler && state.currentBoiler.id
+      const list = await getRecords({ status: 'submitted', ...(boilerId ? { boilerId } : {}) })
       this.setData({ list: (list || []).map(this.normalizeRecord) })
     } catch (e) {
       ui.error('记录加载失败')
@@ -20,8 +23,9 @@ Page({
 
   normalizeRecord(item) {
     const result = item.result || {}
-    const status = result.status || item.status || 'normal'
-    const warning = String(status).toLowerCase() === 'warning' || (result.summary || '').indexOf('偏') >= 0
+    const riskLevel = String(result.riskLevel || '').toLowerCase()
+    const warning = ['warning', 'high', 'critical'].includes(riskLevel)
+      || (result.items || []).some((row) => row.status === 'warning')
     return {
       id: item.inspectionId || item.id,
       boilerName: item.boilerName || `锅炉 #${item.boilerId || '-'}`,

@@ -15,4 +15,8 @@ function completeOnboarding(data) {
   return request({ url: '/auth/complete-onboarding', method: 'POST', data })
 }
 
-module.exports = { wxLogin, getOnboardingStatus, completeOnboarding }
+function saveCurrentBoiler(boilerId) {
+  return request({ url: '/auth/current-boiler', method: 'POST', data: { boilerId } })
+}
+
+module.exports = { wxLogin, getOnboardingStatus, completeOnboarding, saveCurrentBoiler }

@@ -61,13 +61,14 @@
       <view class="sub" bindtap="goAlerts" style="color:#2563eb;">查看全部</view>
     </view>
     <block wx:if="{{alerts.length}}">
-      <block wx:for="{{alerts}}" wx:key="title">
+      <block wx:for="{{alerts}}" wx:key="key">
         <view class="list-item">
           <view class="row">
             <view>
               <view>{{item.title}}</view>
               <view class="sub">{{item.desc}}</view>
               <view wx:if="{{item.relatedItemNames}}" class="sub">复测项目：{{item.relatedItemNames}}</view>
+              <view wx:if="{{item.serviceLabel}}" class="sub">{{item.serviceLabel}}</view>
             </view>
             <view class="tag tag-warn">预警</view>
           </view>

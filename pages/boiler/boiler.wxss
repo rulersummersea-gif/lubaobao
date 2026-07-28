@@ -1,1 +1,5 @@
 @import '../../app.wxss';
+
+.boiler-card { border: 3rpx solid transparent; }
+.boiler-selected { border-color: #2563eb; background: #eff6ff; }
+.tag-selected { color: #ffffff; background: #2563eb; }

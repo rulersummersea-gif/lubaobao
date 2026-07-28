@@ -60,4 +60,30 @@
       </view>
     </block>
   </view>
+  <view wx:if="{{serviceTasks.length}}" class="card">
+    <view class="section-title">服务处理意见</view>
+    <block wx:for="{{serviceTasks}}" wx:key="id">
+      <view class="service-task">
+        <view class="service-task-title">{{item.title}}</view>
+        <view wx:if="{{item.riskType}}" class="sub">{{item.riskType}}</view>
+        <view wx:if="{{item.fieldAction}}" class="service-line">
+          <view class="service-label">系统现场建议</view>
+          <view class="service-text">{{item.fieldAction}}</view>
+        </view>
+        <view class="professional-advice {{item.serviceAdvice ? 'professional-advice-ready' : 'professional-advice-pending'}}">
+          <view class="service-label">服务人员专业意见</view>
+          <view class="service-text">
+            {{item.serviceAdvice || '服务支持人员正在复核本次异常，专业处理意见将在这里更新。'}}
+          </view>
+          <view wx:if="{{item.serviceAdvice && item.serviceByName}}" class="service-meta">
+            {{item.serviceByName}}{{item.serviceAtText ? '｜' + item.serviceAtText : ''}}
+          </view>
+        </view>
+        <view wx:if="{{item.retestPlan}}" class="service-line">
+          <view class="service-label">复测安排</view>
+          <view class="service-text">{{item.retestPlan}}</view>
+        </view>
+      </view>
+    </block>
+  </view>
 </view>

@@ -2,7 +2,7 @@
 // 登录页：先接入真实微信登录流程结构；当前后端未接通时仍可通过 config.useMock 走 mock。
 const api = require('../../api/index')
 const config = require('../../config/index')
-const { setState } = require('../../store/app-state')
+const { getLastBoiler, setState } = require('../../store/app-state')
 const { setToken } = require('../../utils/auth')
 const ui = require('../../utils/ui')
 
@@ -30,18 +30,25 @@ Page({
         wx.login({ success: resolve, fail: reject })
       })
       const res = await api.wxLogin(loginRes.code || 'mock_code')
+      const savedBoiler = getLastBoiler(res.user && res.user.id)
+      const sameEnterprise = savedBoiler && (
+        !savedBoiler.enterpriseId
+        || !res.user.enterpriseId
+        || Number(savedBoiler.enterpriseId) === Number(res.user.enterpriseId)
+      )
+      const currentBoiler = res.currentBoiler || (sameEnterprise ? savedBoiler : null)
       setToken(res.token)
       setState({
         token: res.token,
         user: res.user,
         enterprise: res.enterprise,
-        currentBoiler: res.currentBoiler || null,
+        currentBoiler,
         onboarding: res.onboarding || null
       })
       const app = getApp()
       app.globalData.user = res.user
       app.globalData.enterprise = res.enterprise
-      app.globalData.currentBoiler = res.currentBoiler || null
+      app.globalData.currentBoiler = currentBoiler
       app.globalData.isLoggedIn = true
       ui.hideLoading()
       ui.success('登录成功')

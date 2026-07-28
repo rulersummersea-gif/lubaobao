@@ -1,1 +1,54 @@
 @import '../../app.wxss';
+
+.service-task {
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid #dbe3ef;
+}
+
+.service-task:last-child {
+  border-bottom: none;
+}
+
+.service-task-title {
+  color: #0f172a;
+  font-size: 34rpx;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.service-line,
+.professional-advice {
+  margin-top: 18rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: #f1f5f9;
+}
+
+.professional-advice-ready {
+  border: 2rpx solid #86c5a1;
+  background: #f0fdf4;
+}
+
+.professional-advice-pending {
+  border: 2rpx solid #e7b75a;
+  background: #fffbea;
+}
+
+.service-label {
+  color: #334155;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.service-text {
+  margin-top: 8rpx;
+  color: #0f172a;
+  font-size: 30rpx;
+  line-height: 1.6;
+}
+
+.service-meta {
+  margin-top: 12rpx;
+  color: #475569;
+  font-size: 26rpx;
+}

@@ -1,13 +1,14 @@
 <view class="container">
   <block wx:for="{{boilers}}" wx:key="id">
-    <view class="card" data-item="{{item}}" bindtap="chooseBoiler">
+    <view class="card boiler-card {{item.isSelected ? 'boiler-selected' : ''}} {{selectingId === item.id ? 'button-disabled' : ''}}" data-item="{{item}}" bindtap="chooseBoiler">
       <view class="row">
         <view>
           <view class="title">{{item.name}}</view>
           <view class="sub">{{item.codeText}}｜{{item.locationText}}</view>
           <view class="sub">{{item.specText}}</view>
         </view>
-        <view class="tag {{item.statusClass}}">{{item.statusLabel}}</view>
+        <view wx:if="{{item.isSelected}}" class="tag tag-selected">当前选择</view>
+        <view wx:else class="tag {{item.statusClass}}">{{item.statusLabel}}</view>
       </view>
     </view>
   </block>

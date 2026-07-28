@@ -3,6 +3,7 @@
 const { request } = require('../../api/index')
 const { getRetestTasks } = require('../../api/inspection')
 const { getState } = require('../../store/app-state')
+const { refreshOnboardingState } = require('../../utils/onboarding-session')
 const ui = require('../../utils/ui')
 const retest = require('../../utils/retest')
 
@@ -19,17 +20,25 @@ Page({
   },
 
   async onShow() {
-    const state = getState()
+    let state = getState()
     if (!state.token) {
       wx.redirectTo({ url: '/pages/login/login' })
       return
     }
     try {
       ui.showLoading('加载中')
-      const dashboard = await request({ url: '/dashboard' })
-      let localAlerts = retest.getPendingReminders().slice(0, 3)
       try {
-        const serverTasks = await getRetestTasks({ status: 'pending' })
+        state = await refreshOnboardingState()
+      } catch (statusError) {
+        console.warn('onboarding status refresh failed', statusError)
+      }
+      const dashboard = await request({ url: '/dashboard' })
+      const boilerId = state.currentBoiler && state.currentBoiler.id
+      let localAlerts = retest.getPendingReminders()
+        .filter((item) => !boilerId || Number(item.boilerId) === Number(boilerId))
+        .slice(0, 3)
+      try {
+        const serverTasks = await getRetestTasks({ status: 'pending', ...(boilerId ? { boilerId } : {}) })
         if (serverTasks && serverTasks.length) localAlerts = serverTasks.slice(0, 3)
       } catch (taskError) {}
       const remoteAlerts = (dashboard.alerts || []).map((item) => ({
@@ -38,6 +47,11 @@ Page({
         level: item.level || 'warning'
       }))
       const lastResult = wx.getStorageSync('BG_LAST_RESULT') || {}
+      const alerts = (localAlerts.length ? localAlerts : remoteAlerts).slice(0, 3).map((item, index) => ({
+        ...item,
+        serviceLabel: item.serviceAdvice ? '服务人员已给出专业意见' : (item.id ? '专业意见待复核' : ''),
+        key: item.id || item.riskCode || `${item.title || 'alert'}-${index}`
+      }))
       this.setData({
         user: state.user,
         enterprise: state.enterprise,
@@ -45,7 +59,7 @@ Page({
         canInspect: !state.onboarding || state.onboarding.canInspect !== false,
         packWarning: state.onboarding && state.onboarding.canInspect === false ? state.onboarding.message : '',
         stats: dashboard.stats || [],
-        alerts: (localAlerts.length ? localAlerts : remoteAlerts).slice(0, 3),
+        alerts,
         latestSummary: lastResult.summary || ''
       })
     } catch (e) {

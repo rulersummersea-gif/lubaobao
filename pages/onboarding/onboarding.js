@@ -1,7 +1,7 @@
 const config = require('../../config/index')
 const { verifyMaterialPack, resolveMaterialPackScene } = require('../../api/material-pack')
 const { completeOnboarding } = require('../../api/auth')
-const { getState, setState } = require('../../store/app-state')
+const { getState, saveLastBoiler, setState } = require('../../store/app-state')
 const { setToken } = require('../../utils/auth')
 const ui = require('../../utils/ui')
 
@@ -57,6 +57,8 @@ Page({
       ? '当前材料包已经过期，请扫描新的材料包继续使用。'
       : reason === 'pack_invalid'
         ? '当前材料包已失效，请扫描新的材料包继续使用。'
+        : reason === 'pack_missing'
+          ? '当前锅炉暂无有效材料包，请扫描材料包完成绑定。'
         : '首次登录，请先扫描材料包完成企业用户和锅炉绑定。'
     const savedName = state.user && !['微信用户', '测试用户'].includes(state.user.name) ? state.user.name : ''
     this.setData({
@@ -93,6 +95,7 @@ Page({
 
   saveSessionAndEnter(res, successText = '绑定成功') {
     setToken(res.token)
+    saveLastBoiler(res.user && res.user.id, res.currentBoiler)
     setState({
       token: res.token,
       user: res.user,
@@ -178,9 +181,11 @@ Page({
     const error = this.validate()
     if (error) return ui.error(error)
     const form = this.data.form
+    const state = getState()
     const payload = {
       packCode: this.data.code,
-      userName: this.data.userName.trim()
+      userName: this.data.userName.trim(),
+      boilerId: state.currentBoiler && state.currentBoiler.id
     }
     if (this.data.needsRegistration) {
       payload.enterpriseName = form.enterpriseName.trim()

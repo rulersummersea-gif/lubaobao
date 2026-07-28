@@ -51,6 +51,10 @@
     .field label { color: #475569; font-size: 12px; font-weight: 700; }
     .field.wide { min-width: 220px; }
     .pack-form { align-items: end; }
+    .service-advice-input { width: 280px; min-height: 112px; resize: vertical; font-size: 15px; line-height: 1.55; }
+    .service-state { margin-top: 7px; font-size: 12px; font-weight: 700; }
+    .service-state.pending { color: #b45309; }
+    .service-state.advised { color: #166534; }
     .qr-panel { display: none; grid-template-columns: 200px minmax(260px, 1fr); gap: 18px; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
     .qr-panel.active { display: grid; }
     .qr-panel img { width: 200px; height: 200px; border: 1px solid #cbd5e1; padding: 8px; object-fit: contain; }
@@ -104,7 +108,7 @@
         <div class="nav-label">巡检服务</div>
         <button data-tab="inspections">巡检记录</button>
         <button data-tab="samples">识别样本</button>
-        <button data-tab="retests">服务处置</button>
+        <button data-tab="retests">待处理异常</button>
         <button data-tab="reports">月报中心</button>
       </div>
       <div class="nav-group">
@@ -473,9 +477,15 @@
     </section>
 
     <section id="retests" class="tab">
+      <div class="grid" style="margin-bottom:14px">
+        <div class="kpi"><span>待处理异常</span><b id="retestPendingCount">-</b></div>
+        <div class="kpi"><span>待填写专业意见</span><b id="retestPendingAdviceCount">-</b></div>
+        <div class="kpi"><span>已填写意见</span><b id="retestAdvisedCount">-</b></div>
+        <div class="kpi"><span>高风险待办</span><b id="retestHighRiskCount">-</b></div>
+      </div>
       <div class="card">
         <div class="row">
-          <h2 style="margin-right:auto">复测任务</h2>
+          <h2 style="margin-right:auto">异常服务队列</h2>
           <input id="retestEnterprise" value="1" placeholder="企业ID">
           <select id="retestStatus">
             <option value="pending">待处理</option>
@@ -484,7 +494,19 @@
             <option value="done">已完成</option>
             <option value="all">全部</option>
           </select>
-          <button class="secondary" id="loadRetestsBtn">刷新任务</button>
+          <select id="retestAdviceStatus">
+            <option value="">全部意见状态</option>
+            <option value="pending_advice">待填写专业意见</option>
+            <option value="advised">已填写专业意见</option>
+          </select>
+          <select id="retestLevel">
+            <option value="">全部风险等级</option>
+            <option value="critical">严重</option>
+            <option value="high">高风险</option>
+            <option value="warning">预警</option>
+          </select>
+          <input id="retestKeyword" placeholder="搜索锅炉、风险或指标">
+          <button class="secondary" id="loadRetestsBtn">查询</button>
         </div>
         <table>
           <thead><tr><th>ID</th><th>锅炉</th><th>风险</th><th>复测要求</th><th>现场处置</th><th>后台服务提醒</th><th>服务处理意见</th><th>处理结果</th><th>状态</th><th>操作</th></tr></thead>
@@ -572,7 +594,7 @@ const TAB_META = {
   boilers: ['锅炉档案', '维护客户锅炉及设备基础信息'],
   inspections: ['巡检记录', '查看炉水检测结果和现场图片'],
   samples: ['识别样本', '审核照片质量并沉淀六项试纸标注数据'],
-  retests: ['服务处置', '跟进异常结果、专业意见和复测情况'],
+  retests: ['待处理异常', '集中跟进异常结果、专业意见和复测情况'],
   reports: ['月报中心', '汇总企业月度巡检结果'],
   standards: ['检测标准', '维护炉水六项指标的判断标准'],
   users: ['用户与权限', '管理后台账号、角色和企业权限'],
@@ -1385,26 +1407,39 @@ async function loadInspections() {
 }
 async function loadRetestTasks() {
   const params = new URLSearchParams();
-  params.set('enterpriseId', $('retestEnterprise').value || 1);
+  const enterpriseId = $('retestEnterprise').value || 1;
+  params.set('enterpriseId', enterpriseId);
   params.set('status', $('retestStatus').value || 'pending');
-  const tasks = await api('/retest-tasks?' + params.toString());
+  if ($('retestAdviceStatus').value) params.set('adviceStatus', $('retestAdviceStatus').value);
+  if ($('retestLevel').value) params.set('level', $('retestLevel').value);
+  if ($('retestKeyword').value.trim()) params.set('keyword', $('retestKeyword').value.trim());
+  const [summary, tasks] = await Promise.all([
+    api('/retest-tasks/summary?enterpriseId=' + encodeURIComponent(enterpriseId)),
+    api('/retest-tasks?' + params.toString()),
+  ]);
+  $('retestPendingCount').textContent = summary.pendingCount || 0;
+  $('retestPendingAdviceCount').textContent = summary.pendingAdviceCount || 0;
+  $('retestAdvisedCount').textContent = summary.advisedCount || 0;
+  $('retestHighRiskCount').textContent = summary.highRiskCount || 0;
   state.retestTasks = tasks;
   $('retestsBody').innerHTML = tasks.map((task) => `
     <tr>
       <td>${esc(task.id)}</td>
       <td>${esc(task.boilerName || task.boilerId || '-')}<br><span class="muted">巡检 ${esc(task.inspectionId || '-')}</span></td>
-      <td>${esc(task.title || '-')}<br>${tag(task.riskType || task.level || '-')}<br><span class="muted">${esc(task.relatedItemNames || '')}</span></td>
+      <td>${esc(task.title || '-')}<br>${tag(task.level || task.riskType || '-')}<br><span class="muted">${esc(task.riskType || '')}</span><br><span class="muted">${esc(task.relatedItemNames || '')}</span></td>
       <td>${esc(task.retestPlan || task.desc || '-')}</td>
       <td>${esc(task.fieldAction || task.action || '-')}</td>
       <td>${esc(task.supportNotice || '-')}</td>
       <td>
-        <textarea id="serviceAdvice${task.id}" rows="4" style="width:260px;min-height:92px;border:1px solid #cbd5e1;border-radius:8px;padding:8px;font-size:14px;">${esc(task.serviceAdvice || '')}</textarea>
-        <div class="muted">${task.serviceByName ? `最近保存：${esc(task.serviceByName)} ${esc(task.serviceAt || '')}` : '服务人员可填写专业处理意见'}</div>
+        <textarea class="service-advice-input" id="serviceAdvice${task.id}" maxlength="500" placeholder="结合现场情况填写明确、可执行的专业意见">${esc(task.serviceAdvice || '')}</textarea>
+        <div class="service-state ${task.serviceAdvice ? 'advised' : 'pending'}">${task.serviceAdvice
+          ? `已同步小程序｜${esc(task.serviceByName || '服务人员')} ${esc(String(task.serviceAt || '').replace('T', ' ').slice(0, 19))}`
+          : '待服务人员填写，当前小程序显示“专业意见待复核”'}</div>
       </td>
       <td>${esc(task.resolutionType || '-')}<br><span class="muted">${esc(task.resolutionNote || '')}</span>${task.retestInspectionId ? `<br><button class="secondary" onclick="loadInspectionDetail(${Number(task.retestInspectionId)}); switchTab('inspections')">复测记录</button>` : ''}</td>
       <td>${tag(task.status)}</td>
       <td>
-        <button onclick="saveRetestServiceAdvice(${task.id})">保存意见</button>
+        <button onclick="saveRetestServiceAdvice(${task.id})">${task.serviceAdvice ? '更新专业意见' : '提交专业意见'}</button>
         <button class="secondary" onclick="loadInspectionDetail(${Number(task.inspectionId) || 0}); switchTab('inspections')">巡检详情</button>
         ${task.status === 'pending' ? `<button class="warn" onclick="resolveRetestTask(${task.id}, 'no_retest')">不复测</button>` : ''}
         ${task.status === 'pending' ? `<button onclick="completeRetestTask(${task.id})">标记完成</button>` : ''}
@@ -1412,8 +1447,14 @@ async function loadRetestTasks() {
     </tr>`).join('') || '<tr><td colspan="10">暂无复测任务</td></tr>';
 }
 async function saveRetestServiceAdvice(id) {
-  await api('/retest-tasks/' + id + '/service-advice', { method: 'POST', body: JSON.stringify({ serviceAdvice: $('serviceAdvice' + id).value.trim() }) });
+  const serviceAdvice = $('serviceAdvice' + id).value.trim();
+  if (serviceAdvice.length < 5) {
+    alert('专业处理意见至少填写5个字。');
+    return;
+  }
+  await api('/retest-tasks/' + id + '/service-advice', { method: 'POST', body: JSON.stringify({ serviceAdvice }) });
   await loadRetestTasks();
+  alert('专业处理意见已保存，并同步到小程序。');
 }
 async function resolveRetestTask(id, resolutionType) {
   const note = prompt(resolutionType === 'no_retest' ? '请输入暂不复测/不复测原因' : '请输入处理说明', resolutionType === 'no_retest' ? '现场暂不复测，由后台继续跟进' : '');
@@ -1621,6 +1662,10 @@ $('closeSampleReviewBtn').onclick = () => $('sampleReviewPanel').style.display =
 $('approveSampleBtn').onclick = () => reviewSample('approved').catch(showDebug);
 $('rejectSampleBtn').onclick = () => reviewSample('rejected').catch(showDebug);
 $('loadRetestsBtn').onclick = () => loadRetestTasks().catch(showDebug);
+$('retestStatus').onchange = () => loadRetestTasks().catch(showDebug);
+$('retestAdviceStatus').onchange = () => loadRetestTasks().catch(showDebug);
+$('retestLevel').onchange = () => loadRetestTasks().catch(showDebug);
+$('retestKeyword').onkeydown = (event) => { if (event.key === 'Enter') loadRetestTasks().catch(showDebug); };
 $('loadUsersBtn').onclick = () => loadUsers().catch(showDebug);
 $('saveUserBtn').onclick = () => saveUser().catch(showDebug);
 $('resetUserFormBtn').onclick = () => resetUserForm();

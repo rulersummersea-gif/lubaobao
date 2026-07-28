@@ -301,6 +301,7 @@ def user_response(row) -> dict:
         "name": user["name"],
         "role": user["role"],
         "enterpriseId": user["enterprise_id"],
+        "lastBoilerId": user.get("last_boiler_id"),
         "status": user["status"],
     }
 
@@ -849,6 +850,110 @@ def ensure_inspection_sample_schema(conn) -> None:
     )
 
 
+def ensure_test_strip_schema(conn) -> None:
+    if DB_DRIVER == "mysql":
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS test_strip_products (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              item_code VARCHAR(64) NOT NULL,
+              brand VARCHAR(128) NOT NULL,
+              model VARCHAR(128) NOT NULL,
+              range_text VARCHAR(128) NULL,
+              unit VARCHAR(32) NULL,
+              default_development_seconds INT NOT NULL DEFAULT 60,
+              status VARCHAR(20) NOT NULL DEFAULT 'active',
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NOT NULL,
+              UNIQUE KEY uq_test_strip_product (item_code, brand, model),
+              KEY idx_test_strip_product_item (item_code, status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS test_strip_batches (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              product_id BIGINT NOT NULL,
+              batch_no VARCHAR(64) NOT NULL,
+              production_date VARCHAR(32) NULL,
+              expire_at VARCHAR(32) NULL,
+              development_seconds INT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'active',
+              notes VARCHAR(512) NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NOT NULL,
+              UNIQUE KEY uq_test_strip_batch (product_id, batch_no),
+              KEY idx_test_strip_batch_expire (status, expire_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS material_pack_strip_batches (
+              id BIGINT PRIMARY KEY AUTO_INCREMENT,
+              material_pack_id BIGINT NOT NULL,
+              item_code VARCHAR(64) NOT NULL,
+              strip_batch_id BIGINT NOT NULL,
+              quantity INT NOT NULL DEFAULT 1,
+              assigned_by BIGINT NULL,
+              assigned_by_name VARCHAR(64) NULL,
+              assigned_at DATETIME NOT NULL,
+              UNIQUE KEY uq_pack_strip_item (material_pack_id, item_code),
+              KEY idx_pack_strip_batch (strip_batch_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+    else:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS test_strip_products (
+              id INTEGER PRIMARY KEY,
+              item_code TEXT NOT NULL,
+              brand TEXT NOT NULL,
+              model TEXT NOT NULL,
+              range_text TEXT,
+              unit TEXT,
+              default_development_seconds INTEGER NOT NULL DEFAULT 60,
+              status TEXT NOT NULL DEFAULT 'active',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE(item_code, brand, model)
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_strip_product_item ON test_strip_products(item_code, status);
+            CREATE TABLE IF NOT EXISTS test_strip_batches (
+              id INTEGER PRIMARY KEY,
+              product_id INTEGER NOT NULL,
+              batch_no TEXT NOT NULL,
+              production_date TEXT,
+              expire_at TEXT,
+              development_seconds INTEGER,
+              status TEXT NOT NULL DEFAULT 'active',
+              notes TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE(product_id, batch_no)
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_strip_batch_expire ON test_strip_batches(status, expire_at);
+            CREATE TABLE IF NOT EXISTS material_pack_strip_batches (
+              id INTEGER PRIMARY KEY,
+              material_pack_id INTEGER NOT NULL,
+              item_code TEXT NOT NULL,
+              strip_batch_id INTEGER NOT NULL,
+              quantity INTEGER NOT NULL DEFAULT 1,
+              assigned_by INTEGER,
+              assigned_by_name TEXT,
+              assigned_at TEXT NOT NULL,
+              UNIQUE(material_pack_id, item_code)
+            );
+            CREATE INDEX IF NOT EXISTS idx_pack_strip_batch ON material_pack_strip_batches(strip_batch_id);
+            """
+        )
+    ensure_column(conn, "inspection_samples", "strip_snapshot_json", "JSON NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "inspection_samples", "capture_started_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "inspection_samples", "photo_taken_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+
+
 def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "water_quality_limits", "updated_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "water_quality_limits", "updated_by", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
@@ -864,6 +969,7 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "retest_tasks", "resolved_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "inspections", "retest_task_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "users", "wx_openid", "VARCHAR(128) NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "users", "last_boiler_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "inspections", "inspector_user_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "inspections", "inspector_name", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "material_packs", "batch_no", "VARCHAR(64) NULL" if DB_DRIVER == "mysql" else "TEXT")
@@ -884,6 +990,7 @@ def ensure_schema_updates(conn) -> None:
     ensure_subscription_indexes(conn)
     ensure_subscription_order_event_schema(conn)
     ensure_inspection_sample_schema(conn)
+    ensure_test_strip_schema(conn)
     ensure_pack_qr_index(conn)
     ensure_onboarding_schema(conn)
     ensure_pack_binding_event_schema(conn)
@@ -902,6 +1009,67 @@ def ensure_schema_updates(conn) -> None:
     )
 
 
+def seed_test_strip_catalog(conn) -> None:
+    insert_product = "INSERT IGNORE" if DB_DRIVER == "mysql" else "INSERT OR IGNORE"
+    insert_batch = "INSERT IGNORE" if DB_DRIVER == "mysql" else "INSERT OR IGNORE"
+    insert_assignment = "INSERT IGNORE" if DB_DRIVER == "mysql" else "INSERT OR IGNORE"
+    units = {
+        "ph": "",
+        "phosphate": "mg/L",
+        "sulfite": "mg/L",
+        "alkalinity": "mmol/L",
+        "chloride": "mg/L",
+        "hardness": "mmol/L",
+    }
+    for item in WATER_TEST_ITEMS:
+        conn.execute(
+            f"""
+            {insert_product} INTO test_strip_products(
+              item_code, brand, model, range_text, unit, default_development_seconds,
+              status, created_at, updated_at
+            ) VALUES(?, '炉保保灰测', ?, ?, ?, 60, 'active', ?, ?)
+            """,
+            (item["code"], f"{item['name']}试纸-演示", item["normalRange"], units[item["code"]], now(), now()),
+        )
+        product = row_to_dict(
+            conn.execute(
+                """
+                SELECT id FROM test_strip_products
+                WHERE item_code = ? AND brand = '炉保保灰测' AND model = ?
+                """,
+                (item["code"], f"{item['name']}试纸-演示"),
+            ).fetchone()
+        )
+        if not product:
+            continue
+        conn.execute(
+            f"""
+            {insert_batch} INTO test_strip_batches(
+              product_id, batch_no, production_date, expire_at, development_seconds,
+              status, notes, created_at, updated_at
+            ) VALUES(?, 'DEMO-2026-A', '2026-07-01', '2027-12-31', 60,
+                     'active', '仅用于本地灰测，不代表正式试纸说明书参数', ?, ?)
+            """,
+            (product["id"], now(), now()),
+        )
+        batch = row_to_dict(
+            conn.execute(
+                "SELECT id FROM test_strip_batches WHERE product_id = ? AND batch_no = 'DEMO-2026-A'",
+                (product["id"],),
+            ).fetchone()
+        )
+        if batch:
+            conn.execute(
+                f"""
+                {insert_assignment} INTO material_pack_strip_batches(
+                  material_pack_id, item_code, strip_batch_id, quantity,
+                  assigned_by_name, assigned_at
+                ) VALUES(9001, ?, ?, 1, '系统初始化', ?)
+                """,
+                (item["code"], batch["id"], now()),
+            )
+
+
 def seed_data(conn) -> None:
     conn.execute(
         "INSERT IGNORE INTO enterprises(id, name, code, created_at) VALUES(1, '华能示范工厂', 'HN-DEMO', ?)"
@@ -914,6 +1082,7 @@ def seed_data(conn) -> None:
     ensure_schema_updates(conn)
     seed_water_quality_limits(conn)
     retire_legacy_broad_limits(conn)
+    seed_test_strip_catalog(conn)
     conn.execute(
         """
         INSERT IGNORE INTO boilers(
@@ -1007,6 +1176,7 @@ def init_sqlite() -> None:
               name TEXT NOT NULL,
               role TEXT NOT NULL,
               enterprise_id INTEGER NOT NULL DEFAULT 1,
+              last_boiler_id INTEGER,
               status TEXT NOT NULL DEFAULT 'active',
               created_at TEXT NOT NULL
             );
@@ -1170,6 +1340,7 @@ def init_mysql() -> None:
               name VARCHAR(64) NOT NULL,
               role VARCHAR(32) NOT NULL,
               enterprise_id BIGINT NOT NULL DEFAULT 1,
+              last_boiler_id BIGINT NULL,
               status VARCHAR(20) NOT NULL DEFAULT 'active',
               created_at DATETIME NOT NULL,
               KEY idx_users_enterprise (enterprise_id),
@@ -1311,8 +1482,13 @@ class OnboardingBoilerReq(BaseModel):
 class OnboardingCompleteReq(BaseModel):
     packCode: str
     userName: str
+    boilerId: Optional[int] = None
     enterpriseName: Optional[str] = ""
     boiler: Optional[OnboardingBoilerReq] = None
+
+
+class CurrentBoilerReq(BaseModel):
+    boilerId: int
 
 
 class AdminLoginReq(BaseModel):
@@ -1707,6 +1883,7 @@ def backfill_retest_result(conn, inspection_id: int) -> None:
 
 def retest_task_to_dict(row) -> dict:
     item = row_to_dict(row)
+    service_advice = (item.get("service_advice") or "").strip()
     return {
         "id": item["id"],
         "enterpriseId": item["enterprise_id"],
@@ -1723,7 +1900,8 @@ def retest_task_to_dict(row) -> dict:
         "fieldAction": item["field_action"],
         "retestPlan": item["retest_plan"],
         "supportNotice": item.get("support_notice") or "",
-        "serviceAdvice": item.get("service_advice") or "",
+        "serviceAdvice": service_advice,
+        "serviceStatus": "advised" if service_advice else "pending_advice",
         "serviceBy": item.get("service_by"),
         "serviceByName": item.get("service_by_name") or "",
         "serviceAt": item.get("service_at"),
@@ -1748,10 +1926,12 @@ def pack_is_expired(expire_at) -> bool:
         return False
 
 
-def onboarding_status(conn, user_id: int) -> dict:
-    binding = row_to_dict(
+def user_binding_for_boiler(conn, user_id: int, boiler_id: Optional[int] = None) -> dict:
+    boiler_filter = "AND ub.boiler_id = ?" if boiler_id else ""
+    params = (user_id, boiler_id) if boiler_id else (user_id,)
+    return row_to_dict(
         conn.execute(
-            """
+            f"""
             SELECT ub.id, ub.status AS binding_status, ub.enterprise_id, ub.boiler_id,
                    ub.material_pack_id, ub.bound_at, ub.expire_at AS binding_expire_at,
                    p.code AS pack_code, p.status AS pack_status, p.expire_at AS pack_expire_at,
@@ -1763,13 +1943,47 @@ def onboarding_status(conn, user_id: int) -> dict:
             LEFT JOIN customer_accounts ca ON ca.id = cp.customer_id
             LEFT JOIN boilers b ON b.id = ub.boiler_id
             LEFT JOIN enterprises e ON e.id = ub.enterprise_id
-            WHERE ub.user_id = ?
-            ORDER BY ub.id DESC
+            WHERE ub.user_id = ? {boiler_filter}
+            ORDER BY CASE WHEN ub.status = 'active' THEN 0 ELSE 1 END, ub.id DESC
             LIMIT 1
             """,
+            params,
+        ).fetchone()
+    )
+
+
+def onboarding_status(conn, user_id: int, boiler_id: Optional[int] = None) -> dict:
+    user = row_to_dict(
+        conn.execute(
+            "SELECT id, enterprise_id, last_boiler_id FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     )
+    selected_boiler_id = boiler_id or user.get("last_boiler_id")
+    binding = user_binding_for_boiler(conn, user_id, selected_boiler_id) if selected_boiler_id else user_binding_for_boiler(conn, user_id)
+    if not binding and selected_boiler_id:
+        any_binding = user_binding_for_boiler(conn, user_id)
+        boiler = row_to_dict(
+            conn.execute(
+                "SELECT id, enterprise_id, name FROM boilers WHERE id = ? AND enterprise_id = ?",
+                (selected_boiler_id, user.get("enterprise_id")),
+            ).fetchone()
+        )
+        if any_binding and boiler:
+            return {
+                "required": False,
+                "canEnterHome": True,
+                "canInspect": False,
+                "replacementRequired": True,
+                "reason": "pack_missing",
+                "message": "当前锅炉暂无有效材料包，请扫描材料包后再巡检",
+                "currentBoiler": {
+                    "id": boiler["id"],
+                    "name": boiler["name"],
+                    "enterpriseId": boiler["enterprise_id"],
+                },
+            }
+        binding = any_binding
     if not binding:
         return {
             "required": True,
@@ -1778,6 +1992,7 @@ def onboarding_status(conn, user_id: int) -> dict:
             "replacementRequired": True,
             "reason": "first_login",
             "message": "首次登录，请扫描材料包并完成企业和锅炉绑定",
+            "currentBoiler": None,
         }
 
     expired = pack_is_expired(binding.get("pack_expire_at") or binding.get("binding_expire_at"))
@@ -1795,6 +2010,11 @@ def onboarding_status(conn, user_id: int) -> dict:
         "replacementRequired": not can_inspect,
         "reason": reason,
         "message": "客户账户已停用，请联系服务支持人员" if customer_disabled else "该材料包服务周期尚未开始" if period_not_started else "材料包已过期，请更换材料包后再巡检" if reason == "pack_expired" else "材料包不可用，请更换材料包后再巡检" if invalid_status else "材料包绑定已解除，请重新扫描材料包" if inactive else "绑定有效",
+        "currentBoiler": {
+            "id": binding["boiler_id"],
+            "name": binding.get("boiler_name") or f"锅炉 #{binding['boiler_id']}",
+            "enterpriseId": binding["enterprise_id"],
+        },
         "binding": {
             "id": binding["id"],
             "enterpriseId": binding["enterprise_id"],
@@ -1885,7 +2105,7 @@ def get_wx_user(conn, code: str):
     openid = resolve_wx_openid(code)
     if openid:
         row = conn.execute(
-            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE wx_openid = ?",
+            "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE wx_openid = ?",
             (openid,),
         ).fetchone()
         if row:
@@ -1899,19 +2119,19 @@ def get_wx_user(conn, code: str):
             (username, password_hash(secrets.token_urlsafe(24)), openid, now()),
         )
         return conn.execute(
-            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE id = ?",
             (cur.lastrowid,),
         ).fetchone()
 
     fallback_username = "h5_user" if code == "h5-pilot" else "wx_user"
     row = conn.execute(
-        "SELECT id, username, name, role, enterprise_id, status FROM users WHERE username = ?",
+        "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE username = ?",
         (fallback_username,),
     ).fetchone()
     if not row:
         seed_users(conn)
         row = conn.execute(
-            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE username = ?",
+            "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE username = ?",
             (fallback_username,),
         ).fetchone()
     return row
@@ -1928,13 +2148,7 @@ def wx_login(req: WxLoginReq):
         ).fetchone()
         status = onboarding_status(conn, user["id"])
         enterprise = enterprise_response(enterprise_row) if enterprise_row else None
-    current_boiler = None
-    if status.get("binding"):
-        current_boiler = {
-            "id": status["binding"]["boilerId"],
-            "name": status["binding"]["boilerName"],
-            "enterpriseId": status["binding"]["enterpriseId"],
-        }
+    current_boiler = status.get("currentBoiler")
     return {"token": make_token(user), "user": user, "enterprise": enterprise, "currentBoiler": current_boiler, "onboarding": status}
 
 
@@ -1943,6 +2157,32 @@ def get_onboarding_status(authorization: Optional[str] = Header(None)):
     current_user = get_current_user(authorization)
     with db() as conn:
         return onboarding_status(conn, current_user["id"])
+
+
+@app.post("/auth/current-boiler")
+def save_current_boiler(req: CurrentBoilerReq, authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(authorization)
+    with db() as conn:
+        boiler = row_to_dict(
+            conn.execute(
+                "SELECT id, enterprise_id, name FROM boilers WHERE id = ?",
+                (req.boilerId,),
+            ).fetchone()
+        )
+        if not boiler:
+            raise HTTPException(status_code=404, detail="锅炉不存在")
+        if int(boiler["enterprise_id"]) != int(current_user["enterpriseId"]):
+            raise HTTPException(status_code=403, detail="无权选择其他企业锅炉")
+        conn.execute("UPDATE users SET last_boiler_id = ? WHERE id = ?", (req.boilerId, current_user["id"]))
+        status = onboarding_status(conn, current_user["id"], req.boilerId)
+    return {
+        "currentBoiler": {
+            "id": boiler["id"],
+            "name": boiler["name"],
+            "enterpriseId": boiler["enterprise_id"],
+        },
+        "onboarding": status,
+    }
 
 
 @app.post("/auth/complete-onboarding")
@@ -1979,6 +2219,16 @@ def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str]
             ).fetchone()
         )
         boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (pack["boiler_id"],)).fetchone()) if pack.get("boiler_id") else None
+
+        if not boiler and req.boilerId:
+            boiler = row_to_dict(
+                conn.execute(
+                    "SELECT * FROM boilers WHERE id = ? AND enterprise_id = ?",
+                    (req.boilerId, current_user["enterpriseId"]),
+                ).fetchone()
+            )
+            if not boiler:
+                raise HTTPException(status_code=404, detail="当前选择的锅炉不存在或不属于本企业")
 
         if not boiler and previous:
             boiler = row_to_dict(conn.execute("SELECT * FROM boilers WHERE id = ?", (previous["boiler_id"],)).fetchone())
@@ -2027,8 +2277,12 @@ def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str]
             (enterprise_id, boiler["id"], now(), pack["id"]),
         )
         conn.execute(
-            "UPDATE user_material_pack_bindings SET status = 'inactive', unbound_at = ? WHERE user_id = ? AND status = 'active'",
-            (now(), current_user["id"]),
+            """
+            UPDATE user_material_pack_bindings
+            SET status = 'inactive', unbound_at = ?
+            WHERE user_id = ? AND boiler_id = ? AND status = 'active'
+            """,
+            (now(), current_user["id"], boiler["id"]),
         )
         binding_cur = conn.execute(
             """
@@ -2040,11 +2294,11 @@ def complete_onboarding(req: OnboardingCompleteReq, authorization: Optional[str]
         )
         binding_id = binding_cur.lastrowid
         conn.execute(
-            "UPDATE users SET name = ?, enterprise_id = ? WHERE id = ?",
-            (user_name, enterprise_id, current_user["id"]),
+            "UPDATE users SET name = ?, enterprise_id = ?, last_boiler_id = ? WHERE id = ?",
+            (user_name, enterprise_id, boiler["id"], current_user["id"]),
         )
         user_row = conn.execute(
-            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE id = ?",
             (current_user["id"],),
         ).fetchone()
         enterprise_row = conn.execute(
@@ -2155,7 +2409,7 @@ def create_user(req: UserCreateReq, authorization: Optional[str] = Header(None))
                 raise
             raise HTTPException(status_code=409, detail="账号已存在")
         row = conn.execute(
-            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE id = ?",
             (cur.lastrowid,),
         ).fetchone()
         return user_response(row)
@@ -2167,7 +2421,7 @@ def update_user(user_id: int, req: UserUpdateReq, authorization: Optional[str] =
     with db() as conn:
         existing = row_to_dict(
             conn.execute(
-                "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+                "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE id = ?",
                 (user_id,),
             ).fetchone()
         )
@@ -2207,7 +2461,7 @@ def update_user(user_id: int, req: UserUpdateReq, authorization: Optional[str] =
             params.append(user_id)
             conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", tuple(params))
         row = conn.execute(
-            "SELECT id, username, name, role, enterprise_id, status FROM users WHERE id = ?",
+            "SELECT id, username, name, role, enterprise_id, last_boiler_id, status FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         return user_response(row)
@@ -3388,6 +3642,52 @@ def list_packs(enterpriseId: int = 1):
         return [material_pack_response(row) for row in rows]
 
 
+@app.get("/material-packs/active")
+def get_active_pack_for_boiler(boilerId: int, authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(authorization)
+    with db() as conn:
+        boiler = row_to_dict(
+            conn.execute(
+                "SELECT id, enterprise_id, name FROM boilers WHERE id = ?",
+                (boilerId,),
+            ).fetchone()
+        )
+        if not boiler:
+            raise HTTPException(status_code=404, detail="锅炉不存在")
+        if int(boiler["enterprise_id"]) != int(current_user["enterpriseId"]):
+            raise HTTPException(status_code=403, detail="无权查看其他企业锅炉材料包")
+        status = onboarding_status(conn, current_user["id"], boilerId)
+        binding = status.get("binding") or {}
+        if not status.get("canInspect") or not binding:
+            return {
+                "available": False,
+                "reason": status.get("reason") or "pack_missing",
+                "message": status.get("message") or "当前锅炉暂无有效材料包",
+                "currentBoiler": status.get("currentBoiler") or {
+                    "id": boiler["id"],
+                    "name": boiler["name"],
+                    "enterpriseId": boiler["enterprise_id"],
+                },
+            }
+        pack = row_to_dict(
+            conn.execute(
+                """
+                SELECT p.*, b.name AS boiler_name
+                FROM material_packs p
+                LEFT JOIN boilers b ON b.id = p.boiler_id
+                WHERE p.id = ?
+                """,
+                (binding["materialPackId"],),
+            ).fetchone()
+        )
+        payload = verified_pack_payload(pack)
+        return {
+            "available": True,
+            "pack": payload["pack"],
+            "currentBoiler": status["currentBoiler"],
+        }
+
+
 @app.get("/material-pack-binding-events")
 def list_pack_binding_events(
     enterpriseId: Optional[int] = None,
@@ -4289,22 +4589,38 @@ def analyze_inspection_image(content: bytes, declared_mime: Optional[str] = None
     def add_flag(code: str, message: str, severity: str = "review") -> None:
         flags.append({"code": code, "message": message, "severity": severity})
 
-    if min(width, height) < 720:
+    short_side = min(width, height)
+    if short_side < 720:
         add_flag("resolution_low", "图片短边低于720像素，请靠近试纸重新拍摄", "reject")
-    if size_bytes < 30 * 1024:
+    if size_bytes < 15 * 1024:
+        add_flag("file_too_small", "图片文件严重压缩，颜色和细节不足，请使用原图重新拍摄", "reject")
+    elif size_bytes < 30 * 1024:
         add_flag("file_too_small", "图片文件过小，可能经过度压缩", "review")
-    if brightness < 45:
+    if brightness < 25:
+        add_flag("too_dark", "画面严重过暗，无法可靠辨别试纸颜色，请增加均匀照明后重拍", "reject")
+    elif brightness < 45:
         add_flag("too_dark", "画面过暗，请增加均匀照明", "review")
+    elif brightness > 235:
+        add_flag("too_bright", "画面严重过亮或大面积反光，试纸颜色已失真，请关闭直射闪光后重拍", "reject")
     elif brightness > 220:
         add_flag("too_bright", "画面过亮或存在强反光", "review")
-    if contrast < 18:
+    if contrast < 10:
+        add_flag("contrast_low", "颜色区分度严重不足，无法可靠区分色块，请清洁镜头并避开水雾后重拍", "reject")
+    elif contrast < 18:
         add_flag("contrast_low", "颜色区分度偏低，请避免雾气和逆光", "review")
-    if sharpness < 80:
+    if sharpness < 35:
+        add_flag("blurred", "图片严重模糊，试纸边界无法辨认，请稳定手机并重新对焦", "reject")
+    elif sharpness < 80:
         add_flag("blurred", "图片可能模糊，请保持手机稳定并重新对焦", "review")
 
     reject_count = sum(1 for flag in flags if flag["severity"] == "reject")
     quality_status = "reject" if reject_count else "review" if flags else "pass"
     quality_score = max(0, 100 - reject_count * 40 - (len(flags) - reject_count) * 15)
+    quality_summary = {
+        "pass": "照片基础质量合格，可以继续录入读数",
+        "review": "照片存在轻度质量问题，可继续灰测，后台需重点复核",
+        "reject": "照片质量不合格，必须重新拍摄后才能继续",
+    }[quality_status]
     mime_type = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}[image_format]
     return {
         "width": width,
@@ -4317,6 +4633,9 @@ def analyze_inspection_image(content: bytes, declared_mime: Optional[str] = None
         "qualityScore": quality_score,
         "qualityStatus": quality_status,
         "qualityFlags": flags,
+        "qualitySummary": quality_summary,
+        "canProceed": quality_status != "reject",
+        "nextAction": "retake" if quality_status == "reject" else "manual_review" if quality_status == "review" else "continue",
     }
 
 
@@ -4459,7 +4778,7 @@ def inspection_sample_response(row) -> dict:
 def create_inspection(req: InspectionCreateReq, authorization: Optional[str] = Header(None)):
     current_user = get_current_user(authorization)
     with db() as conn:
-        user_onboarding = onboarding_status(conn, current_user["id"])
+        user_onboarding = onboarding_status(conn, current_user["id"], req.boilerId)
         if user_onboarding["required"]:
             raise HTTPException(status_code=403, detail=user_onboarding["message"])
         if not user_onboarding.get("canInspect", False):
@@ -4745,20 +5064,87 @@ def submit_inspection(req: SubmitReq):
     return {"inspectionId": req.inspectionId, "status": "submitted"}
 
 
+@app.get("/retest-tasks/summary")
+def retest_task_summary(enterpriseId: int = 1, authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(authorization)
+    if current_user.get("role") != "platform_admin":
+        enterpriseId = int(current_user["enterpriseId"])
+    else:
+        ensure_enterprise_scope(current_user, enterpriseId)
+    with db() as conn:
+        counts = row_to_dict(
+            conn.execute(
+                """
+                SELECT
+                  COUNT(*) AS pending_count,
+                  SUM(CASE WHEN service_advice IS NULL OR TRIM(service_advice) = '' THEN 1 ELSE 0 END) AS pending_advice_count,
+                  SUM(CASE WHEN service_advice IS NOT NULL AND TRIM(service_advice) <> '' THEN 1 ELSE 0 END) AS advised_count,
+                  SUM(CASE WHEN level IN ('high', 'critical') THEN 1 ELSE 0 END) AS high_risk_count
+                FROM retest_tasks
+                WHERE enterprise_id = ? AND status = 'pending'
+                """,
+                (enterpriseId,),
+            ).fetchone()
+        )
+    return {
+        "enterpriseId": enterpriseId,
+        "pendingCount": int(counts.get("pending_count") or 0),
+        "pendingAdviceCount": int(counts.get("pending_advice_count") or 0),
+        "advisedCount": int(counts.get("advised_count") or 0),
+        "highRiskCount": int(counts.get("high_risk_count") or 0),
+    }
+
+
 @app.get("/retest-tasks")
-def list_retest_tasks(enterpriseId: int = 1, status: str = "pending"):
+def list_retest_tasks(
+    enterpriseId: int = 1,
+    status: str = "pending",
+    boilerId: Optional[int] = None,
+    inspectionId: Optional[int] = None,
+    adviceStatus: str = "",
+    level: str = "",
+    keyword: str = "",
+    authorization: Optional[str] = Header(None),
+):
+    current_user = get_current_user(authorization)
+    if current_user.get("role") != "platform_admin":
+        enterpriseId = int(current_user["enterpriseId"])
+    else:
+        ensure_enterprise_scope(current_user, enterpriseId)
     with db() as conn:
         filters = ["enterprise_id = ?"]
         params = [enterpriseId]
         if status and status != "all":
             filters.append("status = ?")
             params.append(status)
+        if boilerId:
+            filters.append("boiler_id = ?")
+            params.append(boilerId)
+        if inspectionId:
+            filters.append("inspection_id = ?")
+            params.append(inspectionId)
+        if adviceStatus == "pending_advice":
+            filters.append("(service_advice IS NULL OR TRIM(service_advice) = '')")
+        elif adviceStatus == "advised":
+            filters.append("(service_advice IS NOT NULL AND TRIM(service_advice) <> '')")
+        if level:
+            filters.append("level = ?")
+            params.append(level)
+        search = keyword.strip()
+        if search:
+            like = f"%{search}%"
+            filters.append("(title LIKE ? OR boiler_name LIKE ? OR risk_type LIKE ? OR related_item_names LIKE ?)")
+            params.extend((like, like, like, like))
         rows = conn.execute(
             f"""
             SELECT *
             FROM retest_tasks
             WHERE {' AND '.join(filters)}
-            ORDER BY id DESC
+            ORDER BY
+              CASE WHEN status = 'pending' THEN 0 ELSE 1 END,
+              CASE WHEN level IN ('critical', 'high') THEN 0 WHEN level = 'warning' THEN 1 ELSE 2 END,
+              CASE WHEN service_advice IS NULL OR TRIM(service_advice) = '' THEN 0 ELSE 1 END,
+              id DESC
             """,
             tuple(params),
         )
@@ -4806,6 +5192,12 @@ def resolve_retest_task(task_id: int, req: RetestResolutionReq):
 @app.post("/retest-tasks/{task_id}/service-advice")
 def save_retest_service_advice(task_id: int, req: RetestServiceAdviceReq, authorization: Optional[str] = Header(None)):
     current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
+    service_advice = req.serviceAdvice.strip()
+    if len(service_advice) < 5:
+        raise HTTPException(status_code=400, detail="专业处理意见至少填写5个字")
+    if len(service_advice) > 500:
+        raise HTTPException(status_code=400, detail="专业处理意见不能超过500个字")
+    service_at = now()
     with db() as conn:
         row = row_to_dict(conn.execute("SELECT enterprise_id FROM retest_tasks WHERE id = ?", (task_id,)).fetchone())
         if not row:
@@ -4817,11 +5209,17 @@ def save_retest_service_advice(task_id: int, req: RetestServiceAdviceReq, author
             SET service_advice = ?, service_by = ?, service_by_name = ?, service_at = ?
             WHERE id = ?
             """,
-            (req.serviceAdvice.strip(), current_user.get("id"), current_user.get("name") or current_user.get("username"), now(), task_id),
+            (service_advice, current_user.get("id"), current_user.get("name") or current_user.get("username"), service_at, task_id),
         )
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="retest task not found")
-    return {"id": task_id, "serviceAdvice": req.serviceAdvice.strip(), "serviceByName": current_user.get("name") or current_user.get("username")}
+    return {
+        "id": task_id,
+        "serviceAdvice": service_advice,
+        "serviceStatus": "advised",
+        "serviceByName": current_user.get("name") or current_user.get("username"),
+        "serviceAt": service_at,
+    }
 
 
 @app.get("/inspections")
@@ -4868,18 +5266,47 @@ def record_detail_alias(id: int):
 
 
 @app.get("/reports/monthly")
-def monthly_report(enterpriseId: int = 1, month: str = "2026-07"):
+def monthly_report(enterpriseId: int = 1, month: str = ""):
+    report_month = month.strip() or datetime.now().strftime("%Y-%m")
+    try:
+        month_start = datetime.strptime(report_month, "%Y-%m")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="month格式应为YYYY-MM") from exc
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
     with db() as conn:
-        rows = conn.execute("SELECT status, score FROM inspections WHERE enterprise_id = ?", (enterpriseId,)).fetchall()
+        rows = conn.execute(
+            """
+            SELECT status, score
+            FROM inspections
+            WHERE enterprise_id = ? AND status = 'submitted'
+              AND COALESCE(submitted_at, created_at) >= ?
+              AND COALESCE(submitted_at, created_at) < ?
+            """,
+            (
+                enterpriseId,
+                month_start.strftime("%Y-%m-%d %H:%M:%S"),
+                month_end.strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        ).fetchall()
         boiler_count = conn.execute("SELECT COUNT(*) AS c FROM boilers WHERE enterprise_id = ?", (enterpriseId,)).fetchone()["c"]
     total = len(rows)
     abnormal = sum(1 for row in rows if (row["score"] or 100) < 90)
-    avg = round(sum((row["score"] or 86) for row in rows) / total) if total else 86
+    avg = round(sum((row["score"] or 100) for row in rows) / total) if total else 0
+    if not total:
+        suggestions = ["本月暂无正式巡检记录，请按计划完成炉水六项检测。"]
+    elif abnormal:
+        suggestions = [
+            f"本月共有{abnormal}次异常巡检，请优先跟进未关闭的服务处置与复测任务。",
+            "建议结合六项指标趋势，复核排污、加药和软水器运行记录。",
+        ]
+    else:
+        suggestions = ["本月已提交巡检均未触发异常预警，建议继续保持当前巡检频次。"]
     return {
         "enterpriseId": enterpriseId,
-        "month": month,
+        "month": report_month,
         "score": avg,
         "inspectionCount": total,
         "abnormalCount": abnormal,
         "boilerCount": boiler_count,
+        "suggestions": suggestions,
     }

@@ -5,6 +5,11 @@
 .retest-cancel { margin-top: 16rpx; }
 
 .button-disabled { opacity: 0.55; }
+
+.quality-check-button {
+  margin-top: 18rpx;
+}
+
 .preview-img {
   width: 100%;
   height: 360rpx;
@@ -21,6 +26,81 @@
   color: #1e3a8a;
   font-size: 28rpx;
   line-height: 1.6;
+}
+
+.quality-box {
+  position: relative;
+  margin-top: 24rpx;
+  padding: 24rpx;
+  border: 2rpx solid #94a3b8;
+  border-radius: 16rpx;
+  background: #f8fafc;
+}
+
+.quality-pass {
+  border-color: #86c5a1;
+  background: #f0fdf4;
+}
+
+.quality-review {
+  border-color: #e7b75a;
+  background: #fffbea;
+}
+
+.quality-reject {
+  border-color: #e58b8b;
+  background: #fff4f4;
+}
+
+.quality-title {
+  padding-right: 120rpx;
+  color: #0f172a;
+  font-size: 34rpx;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.quality-score {
+  position: absolute;
+  top: 24rpx;
+  right: 24rpx;
+  color: #0f172a;
+  font-size: 32rpx;
+  font-weight: 800;
+}
+
+.quality-summary {
+  margin-top: 12rpx;
+  color: #334155;
+  font-size: 30rpx;
+  line-height: 1.55;
+}
+
+.quality-metrics {
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #cbd5e1;
+  color: #475569;
+  font-size: 26rpx;
+  line-height: 1.55;
+}
+
+.quality-issue {
+  margin-top: 12rpx;
+  padding-left: 18rpx;
+  border-left: 6rpx solid #d4a72c;
+  color: #713f12;
+  font-size: 28rpx;
+  line-height: 1.55;
+}
+
+.quality-issue-reject {
+  border-left-color: #c24141;
+  color: #7f1d1d;
+}
+
+.retake-button {
+  margin-top: 22rpx;
 }
 
 .water-input-row {

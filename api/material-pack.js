@@ -18,4 +18,8 @@ function activateMaterialPack(data) {
   return request({ url, method: 'POST', data })
 }
 
-module.exports = { verifyMaterialPack, resolveMaterialPackScene, getMaterialPacks, activateMaterialPack }
+function getActiveMaterialPack(boilerId) {
+  return request({ url: '/material-packs/active', method: 'GET', data: { boilerId } })
+}
+
+module.exports = { verifyMaterialPack, resolveMaterialPackScene, getMaterialPacks, activateMaterialPack, getActiveMaterialPack }

@@ -1,8 +1,9 @@
 const config = require('../../config/index')
 const { verifyPack } = require('../../api/index')
-const { getMaterialPacks } = require('../../api/material-pack')
+const { getActiveMaterialPack, getMaterialPacks } = require('../../api/material-pack')
 const { createInspection, uploadImage, recognizeInspection } = require('../../api/inspection')
 const { getState } = require('../../store/app-state')
+const { refreshOnboardingState } = require('../../utils/onboarding-session')
 const ui = require('../../utils/ui')
 
 Page({
@@ -24,11 +25,26 @@ Page({
       { code: 'chloride', name: '氯离子', unit: 'mg/L', value: '320', placeholder: '如 320' },
       { code: 'hardness', name: '硬度', unit: 'mmol/L', value: '0.05', placeholder: '如 0.05' }
     ],
+    qualityChecking: false,
     submitting: false
   },
 
-  onShow() {
-    const state = getState()
+  async onShow() {
+    let state = getState()
+    if (!state.token) {
+      wx.redirectTo({ url: '/pages/login/login' })
+      return
+    }
+    try {
+      state = await refreshOnboardingState()
+    } catch (statusError) {
+      console.warn('onboarding status refresh failed', statusError)
+    }
+    if (state.onboarding && state.onboarding.required) {
+      const reason = encodeURIComponent(state.onboarding.reason || 'first_login')
+      wx.reLaunch({ url: `/pages/onboarding/onboarding?reason=${reason}` })
+      return
+    }
     if (state.onboarding && state.onboarding.canInspect === false) {
       ui.error(state.onboarding.message || '请先更换材料包')
       const reason = encodeURIComponent(state.onboarding.reason || 'pack_expired')
@@ -43,16 +59,43 @@ Page({
       currentBoiler,
       retestTask,
       ...(packChangedBoiler ? {
+        inspectionId: null,
+        materialPackId: null,
+        materialPackCode: '',
+        materialPackBoilerId: null,
+        materialPackBoilerName: '',
+        previewImage: '',
+        photoQuality: null
+      } : {})
+    })
+    if (packChangedBoiler) ui.error('锅炉已变更，请重新校验材料包')
+    if (targetBoilerId) await this.loadActivePack(targetBoilerId)
+  },
+
+  goChooseBoiler() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
+
+  async loadActivePack(boilerId) {
+    try {
+      const res = await getActiveMaterialPack(boilerId)
+      const pack = res && res.pack
+      if (!res || !res.available || !pack) throw new Error('当前锅炉暂无有效材料包')
+      this.setData({
+        materialPackId: pack.id,
+        materialPackCode: pack.code,
+        materialPackBoilerId: pack.boilerId,
+        materialPackBoilerName: pack.boilerName || (this.data.currentBoiler && this.data.currentBoiler.name) || ''
+      })
+      return true
+    } catch (e) {
+      this.setData({
         materialPackId: null,
         materialPackCode: '',
         materialPackBoilerId: null,
         materialPackBoilerName: ''
-      } : {})
-    })
-    if (packChangedBoiler) ui.error('锅炉已变更，请重新校验材料包')
+      })
+      return false
+    }
   },
-
-  goChooseBoiler() { wx.navigateTo({ url: '/pages/boiler/boiler' }) },
 
   async setPackByCode(code, successText = '材料包校验成功') {
     const state = getState()
@@ -73,11 +116,17 @@ Page({
     if (Number(pack.boilerId) !== Number(targetBoiler.id)) {
       throw new Error(`材料包已绑定${pack.boilerName || '其他锅炉'}`)
     }
+    const packChanged = this.data.materialPackId && Number(this.data.materialPackId) !== Number(pack.id)
     this.setData({
       materialPackCode: code,
       materialPackId: pack.id,
       materialPackBoilerId: pack.boilerId,
-      materialPackBoilerName: pack.boilerName || targetBoiler.name || ''
+      materialPackBoilerName: pack.boilerName || targetBoiler.name || '',
+      ...(packChanged ? {
+        inspectionId: null,
+        previewImage: '',
+        photoQuality: null
+      } : {})
     })
     ui.success(successText)
   },
@@ -142,6 +191,82 @@ Page({
     }
   },
 
+  getInspectionContext() {
+    const state = getState()
+    const retestTask = this.data.retestTask
+    return {
+      boilerId: (retestTask && retestTask.boilerId) || (state.currentBoiler && state.currentBoiler.id),
+      inspectionType: retestTask ? 'retest' : 'daily',
+      retestTaskId: retestTask ? retestTask.id : null
+    }
+  },
+
+  async checkPhotoQuality(showFeedback = true) {
+    if (this.data.qualityChecking || this.data.submitting) return false
+    const context = this.getInspectionContext()
+    if (!context.boilerId) {
+      ui.error('请先选择锅炉')
+      return false
+    }
+    if (!this.data.materialPackId) {
+      ui.error('请先校验材料包')
+      return false
+    }
+    if (!this.data.previewImage) {
+      ui.error('请先拍照')
+      return false
+    }
+
+    this.setData({ qualityChecking: true })
+    try {
+      ui.showLoading('检查照片质量')
+      let inspectionId = this.data.inspectionId
+      if (!inspectionId) {
+        const created = await createInspection({
+          boilerId: context.boilerId,
+          materialPackId: this.data.materialPackId,
+          inspectionType: context.inspectionType,
+          retestTaskId: context.retestTaskId
+        })
+        inspectionId = created.inspectionId || created.id
+        if (!inspectionId) throw new Error('创建巡检失败：缺少inspectionId')
+      }
+
+      const uploadResult = await uploadImage(this.data.previewImage, inspectionId)
+      const flags = uploadResult.qualityFlags || []
+      const photoQuality = {
+        status: uploadResult.qualityStatus || 'pass',
+        score: uploadResult.qualityScore == null ? 100 : uploadResult.qualityScore,
+        summary: uploadResult.qualitySummary || '照片基础质量合格，可以继续录入读数',
+        canProceed: uploadResult.canProceed !== false && uploadResult.qualityStatus !== 'reject',
+        nextAction: uploadResult.nextAction || 'continue',
+        width: uploadResult.width || 0,
+        height: uploadResult.height || 0,
+        brightness: uploadResult.brightness,
+        contrast: uploadResult.contrast,
+        sharpness: uploadResult.sharpness,
+        flags,
+        messages: flags.map((item) => item.message)
+      }
+      this.setData({ inspectionId, photoQuality })
+
+      if (!photoQuality.canProceed) {
+        ui.error(photoQuality.messages[0] || '照片质量不合格，请重新拍摄')
+        return false
+      }
+      if (showFeedback) {
+        ui.success(photoQuality.status === 'review' ? '照片可继续，后台将复核' : '照片质量合格')
+      }
+      return true
+    } catch (e) {
+      ui.error(e.message || '照片质量检查失败')
+      return false
+    } finally {
+      ui.hideLoading()
+      this.setData({ qualityChecking: false })
+    }
+  },
+
   onWaterValueInput(e) {
     const index = Number(e.currentTarget.dataset.index)
     const waterItems = this.data.waterItems.slice()
@@ -182,7 +307,10 @@ Page({
     const clearPack = this.data.materialPackBoilerId && currentBoilerId && Number(this.data.materialPackBoilerId) !== Number(currentBoilerId)
     wx.removeStorageSync('BG_RETEST_TASK')
     this.setData({
+      inspectionId: null,
       retestTask: null,
+      previewImage: '',
+      photoQuality: null,
       ...(clearPack ? {
         materialPackId: null,
         materialPackCode: '',
@@ -194,13 +322,20 @@ Page({
   },
 
   async startInspection() {
-    if (this.data.submitting) return
+    if (this.data.submitting || this.data.qualityChecking) return
     const state = getState()
     const retestTask = this.data.retestTask
     const boilerId = (retestTask && retestTask.boilerId) || (state.currentBoiler && state.currentBoiler.id)
     if (!boilerId) return ui.error('请先选择锅炉')
     if (!this.data.materialPackCode) return ui.error('请先扫码材料包')
     if (!this.data.previewImage) return ui.error('请先拍照')
+    if (!this.data.photoQuality) {
+      const qualityReady = await this.checkPhotoQuality(false)
+      if (!qualityReady) return
+    }
+    if (this.data.photoQuality && !this.data.photoQuality.canProceed) {
+      return ui.error('照片质量不合格，请重新拍摄')
+    }
     let waterValues
     try {
       waterValues = this.buildWaterValues()
@@ -213,27 +348,9 @@ Page({
 
     this.setData({ submitting: true })
     try {
-      ui.showLoading('创建巡检中')
-      const created = await createInspection({
-        boilerId,
-        materialPackId: this.data.materialPackId,
-        inspectionType: retestTask ? 'retest' : 'daily',
-        retestTaskId: retestTask ? retestTask.id : null
-      })
-      const inspectionId = created.inspectionId || created.id
-      if (!inspectionId) throw new Error('创建巡检失败：缺少inspectionId')
-
-      // 真实接口优先：上传图片 -> 发起识别；mock 下也兼容
-      const uploadResult = await uploadImage(this.data.previewImage, inspectionId)
-      const photoQuality = uploadResult.qualityStatus ? {
-        status: uploadResult.qualityStatus,
-        score: uploadResult.qualityScore,
-        messages: (uploadResult.qualityFlags || []).map((item) => item.message)
-      } : null
-      this.setData({ photoQuality })
-      if (photoQuality && photoQuality.status === 'reject') {
-        throw new Error(photoQuality.messages.join('；') || '照片质量不合格，请重新拍摄')
-      }
+      ui.showLoading('生成检测结果')
+      const inspectionId = this.data.inspectionId
+      if (!inspectionId) throw new Error('请先完成照片质量检查')
       const result = await recognizeInspection({ inspectionId, values: waterValues })
 
       wx.setStorageSync('BG_LAST_RESULT', result.result || result)

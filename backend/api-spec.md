@@ -32,13 +32,20 @@
 登录响应同时返回 `onboarding.required` 和 `onboarding.canInspect`。首次登录且从未绑定材料包时 `required=true`，必须进入扫码页；材料包过期时仍可进入首页，但 `canInspect=false`，更换材料包后才能巡检。
 
 ### GET `/auth/onboarding-status`
-读取当前用户的材料包、企业和锅炉绑定状态。
+读取当前用户上次选择锅炉的材料包、企业和锅炉绑定状态。
+
+### POST `/auth/current-boiler`
+```json
+{ "boilerId": 1001 }
+```
+保存当前用户最后选择的锅炉。选择结果保存在服务器，用户更换设备或重新登录后仍会恢复；响应同时返回该锅炉最新的 `onboarding` 状态。
 
 ### POST `/auth/complete-onboarding`
 ```json
 {
   "packCode": "PACK-001",
   "userName": "张三",
+  "boilerId": 1001,
   "enterpriseName": "示范企业",
   "boiler": {
     "deviceCode": "D-1001",
@@ -50,7 +57,7 @@
   }
 }
 ```
-材料包已有锅炉绑定，或用户因旧包过期进行换包时，可以省略企业和锅炉字段；首次使用未绑定材料包时必须填写。
+已有锅炉档案时传 `boilerId`，未绑定材料包会绑定到该锅炉；首次登记新锅炉时传 `boiler`。同一用户可以为不同锅炉分别绑定有效材料包，绑定新包不会停用其他锅炉的材料包。
 
 ## 2. 企业与锅炉
 ### GET `/enterprises`
@@ -252,6 +259,9 @@
 ```
 校验成功后返回材料包的 `boilerId`、`boilerName`、`status` 和有效期，巡检端据此确认材料包与当前锅炉一致。
 
+### GET `/material-packs/active?boilerId=1001`
+查询当前用户指定锅炉的有效材料包。有效时返回 `available=true` 和材料包；未绑定、已过期或不可用时返回 `available=false`、原因和引导文案，小程序据此拦截巡检并进入扫码绑定页。
+
 ### POST `/material-packs/resolve-scene`
 ```json
 { "scene": "小程序码中的场景令牌" }
@@ -299,7 +309,7 @@
 - `inspectionId`: 巡检ID
 - `file`: JPG、PNG或WebP图片，最大12MB
 
-上传后返回图片尺寸、大小、亮度、对比度、清晰度、质量评分、质量状态和问题列表。`qualityStatus` 支持 `pass`、`review`、`reject`；`reject` 图片不能进入识别。
+上传后返回图片尺寸、大小、亮度、对比度、清晰度、质量评分、质量状态和问题列表。`qualityStatus` 支持 `pass`、`review`、`reject`；同时返回 `qualitySummary`、`canProceed` 和 `nextAction`。`review` 可继续灰测但后台需重点复核，`reject` 必须重拍且不能进入识别。严重亮度、对比度、清晰度、压缩或分辨率问题均会判为 `reject`。
 
 ### POST `/inspections/:id/upload`
 同上，REST 风格上传别名。
@@ -400,8 +410,18 @@
 }
 ```
 
-### GET `/retest-tasks?enterpriseId=1&status=pending`
-查询待复测任务。识别结果中存在 `retestPlan` 的诊断项会自动生成复测任务。
+### GET `/retest-tasks?enterpriseId=1&status=pending&boilerId=1001`
+查询异常服务与复测任务。识别结果中存在 `retestPlan` 的诊断项会自动生成任务；小程序传 `boilerId` 后只返回当前锅炉任务。后台还支持：
+
+- `inspectionId`：查询某次巡检关联的全部异常任务。
+- `adviceStatus=pending_advice|advised`：筛选待填写或已填写专业意见。
+- `level=critical|high|warning`：筛选风险等级。
+- `keyword`：搜索锅炉名称、风险、标题或关联指标。
+
+响应中的 `serviceStatus` 为 `pending_advice` 或 `advised`。
+
+### GET `/retest-tasks/summary?enterpriseId=1`
+返回待处理异常数、待填写专业意见数、已填写意见数和高风险待办数，用于后台异常服务工作台。
 
 响应示例：
 ```json
@@ -437,16 +457,21 @@
 ```json
 { "serviceAdvice": "已复核现场情况，建议先按排污制度执行一次定排，2小时后复测氯离子和总碱度。" }
 ```
+意见长度为5-500字。保存后小程序首页显示“已给出专业意见”，异常提醒页和巡检详情页同步显示意见内容、服务人员和保存时间；系统现场建议与服务人员专业意见分开展示。
 
 ## 6. 记录与报告
 ### GET `/inspections`
-支持筛选：
+支持筛选，传 `boilerId` 后只返回当前锅炉记录：
 ```text
 /inspections?status=submitted&boilerId=1001
 ```
 ### GET `/records/:id`
 ### GET `/record-detail?id=9001`
 ### GET `/reports/monthly?enterpriseId=1&month=2026-07`
+
+月报按传入的自然月统计，只纳入状态为 `submitted` 的正式巡检记录。`month`
+为空时使用服务器当前月份，格式错误时返回 400。返回平均健康评分、正式巡检数、
+异常巡检数、锅炉数和本月建议；当月无记录时评分为 0，并提示完成计划巡检。
 
 ## 7. 用户权限
 ### POST `/auth/admin-login`

@@ -151,3 +151,15 @@ GET  /reports/monthly
 ```
 
 正式微信登录及小程序码需配置环境变量 `WX_APPID` 和 `WX_APPSECRET`。小程序码默认进入 `pages/onboarding/onboarding`，可通过 `MINIPROGRAM_BIND_PAGE` 调整；`WX_CODE_ENV_VERSION` 支持 `release`、`trial`、`develop`。未配置微信凭证时，后台生成普通二维码供本地灰测；配置后生成可直接打开小程序绑定页的正式小程序码。
+
+## 灰测闭环验收
+
+本地环境启动后，可运行：
+
+```bash
+sh backend/gray_acceptance.sh
+```
+
+脚本会依次验证登录与绑定、材料包校验、照片上传、六项人工读数、异常诊断、
+后台专业意见、正常复测回填、历史详情、识别样本和自然月月报，并在本地库中
+保留本次异常巡检与复测记录。

@@ -13,6 +13,20 @@ function hideLoading() {
   if (loadingCount === 0) wx.hideLoading()
 }
 
-function success(title = '成功') { wx.showToast({ title, icon: 'success' }) }
-function error(title = '操作失败') { wx.showToast({ title, icon: 'none' }) }
+function clearLoadingForToast() {
+  if (loadingCount <= 0) return
+  loadingCount = 0
+  wx.hideLoading()
+}
+
+function success(title = '成功') {
+  clearLoadingForToast()
+  wx.showToast({ title, icon: 'success' })
+}
+
+function error(title = '操作失败') {
+  clearLoadingForToast()
+  wx.showToast({ title, icon: 'none' })
+}
+
 module.exports = { showLoading, hideLoading, success, error }

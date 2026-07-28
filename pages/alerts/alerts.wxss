@@ -12,6 +12,44 @@
   margin-top: 22rpx;
 }
 
+.service-advice {
+  margin-top: 22rpx;
+  padding: 22rpx;
+  border: 2rpx solid #cbd5e1;
+  border-radius: 16rpx;
+  background: #f8fafc;
+}
+
+.service-advice-ready {
+  border-color: #86c5a1;
+  background: #f0fdf4;
+}
+
+.service-advice-pending {
+  border-color: #e7b75a;
+  background: #fffbea;
+}
+
+.service-advice-title {
+  color: #0f172a;
+  font-size: 32rpx;
+  font-weight: 800;
+}
+
+.service-advice-text {
+  margin-top: 10rpx;
+  color: #1e293b;
+  font-size: 30rpx;
+  line-height: 1.6;
+}
+
+.service-advice-meta {
+  margin-top: 12rpx;
+  color: #475569;
+  font-size: 26rpx;
+  line-height: 1.5;
+}
+
 .alert-btn {
   min-height: 88rpx;
   border-radius: 16rpx;

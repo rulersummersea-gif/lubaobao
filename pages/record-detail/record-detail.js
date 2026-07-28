@@ -1,16 +1,34 @@
 // pages/record-detail/record-detail.js
 // 记录详情页：展示单次巡检的完整内容，包括结果明细、诊断建议和备注。
-const { getInspectionResult } = require('../../api/inspection')
+const { getInspectionResult, getRetestTasks } = require('../../api/inspection')
 const ui = require('../../utils/ui')
 
 Page({
-  data: { detail: { items: [], diagnosis: [] } },
+  data: { detail: { items: [], diagnosis: [] }, serviceTasks: [] },
 
   async onLoad(options) {
     try {
       ui.showLoading('加载详情')
-      const detail = await getInspectionResult(options.id)
-      this.setData({ detail: this.normalizeDetail(detail || {}, options.id) })
+      const [detail, tasks] = await Promise.all([
+        getInspectionResult(options.id),
+        getRetestTasks({ status: 'all', inspectionId: options.id }).catch(() => [])
+      ])
+      this.setData({
+        detail: this.normalizeDetail(detail || {}, options.id),
+        serviceTasks: (tasks || [])
+          .filter((item) => Number(item.inspectionId) === Number(options.id))
+          .map((item) => ({
+            id: item.id,
+            title: item.title || item.riskType || '异常处理',
+            riskType: item.riskType || '',
+            fieldAction: item.fieldAction || item.action || '',
+            retestPlan: item.retestPlan || item.desc || '',
+            serviceAdvice: item.serviceAdvice || '',
+            serviceByName: item.serviceByName || '',
+            serviceAtText: item.serviceAt ? String(item.serviceAt).replace('T', ' ').slice(0, 16) : '',
+            status: item.status || 'pending'
+          }))
+      })
     } catch (e) {
       ui.error('详情加载失败')
     } finally {

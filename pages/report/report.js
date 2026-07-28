@@ -2,6 +2,12 @@ const { getMonthlyReport } = require('../../api/report')
 const { getState } = require('../../store/app-state')
 const ui = require('../../utils/ui')
 
+function currentMonth() {
+  const date = new Date()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  return `${date.getFullYear()}-${month}`
+}
+
 Page({
   data: { report: null },
   async onShow() {
@@ -10,7 +16,7 @@ Page({
       ui.showLoading('加载报告')
       const report = await getMonthlyReport({
         enterpriseId: state.enterprise && state.enterprise.id,
-        month: ''
+        month: currentMonth()
       })
       this.setData({ report })
     } catch (e) {
