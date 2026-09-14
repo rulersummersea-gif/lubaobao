@@ -79,13 +79,15 @@ upload="$(curl -fsS -X POST "$API_BASE/inspections/upload-image" \
   -F "file=@$PHOTO_FILE;type=image/png")"
 printf '%s' "$upload" | jq -e '.success == true and .qualityStatus != "reject"' >/dev/null
 
-step 5 "录入六项读数并生成异常诊断"
-abnormal_values='{"ph":"9","phosphate":"10","sulfite":"20","alkalinity":"10","chloride":"100","hardness":"1"}'
+step 5 "录入软化水两项与炉水六项读数并生成异常诊断"
+abnormal_values='{"softened_ph":"7","softened_hardness":"0.02","ph":"9","phosphate":"10","sulfite":"20","alkalinity":"10","chloride":"100","hardness":"1"}'
 recognized="$(api_json POST /inspections/recognize "$token" \
   "{\"inspectionId\":$inspection_id,\"values\":$abnormal_values}")"
 printf '%s' "$recognized" | jq -e '
   .result.recognitionSource == "manual_gray" and
-  (.result.items | length) == 6 and
+  .result.sampleType == "combined" and
+  (.result.items | length) == 8 and
+  (.result.groups | length) == 2 and
   (.result.diagnosis | length) > 0 and
   any(.result.items[]; .code == "hardness" and .status == "warning")
 ' >/dev/null
@@ -117,12 +119,12 @@ retest_upload="$(curl -fsS -X POST "$API_BASE/inspections/upload-image" \
   -F "inspectionId=$retest_id" \
   -F "file=@$PHOTO_FILE;type=image/png")"
 printf '%s' "$retest_upload" | jq -e '.success == true and .qualityStatus != "reject"' >/dev/null
-normal_values='{"ph":"9","phosphate":"10","sulfite":"20","alkalinity":"10","chloride":"100","hardness":"0.01"}'
+normal_values='{"softened_ph":"7","softened_hardness":"0.02","ph":"9","phosphate":"10","sulfite":"20","alkalinity":"10","chloride":"100","hardness":"0.01"}'
 retest_result="$(api_json POST /inspections/recognize "$token" \
   "{\"inspectionId\":$retest_id,\"values\":$normal_values}")"
 printf '%s' "$retest_result" | jq -e '
-  (.result.items | length) == 6 and
-  all(.result.items[]; .status == "normal")
+  (.result.items | length) == 8 and
+  all(.result.items[]; .status == "normal" or .status == "unknown")
 ' >/dev/null
 api_json POST /inspections/submit "" \
   "{\"inspectionId\":$retest_id,\"remark\":\"本地灰测自动验收：正常复测\"}" >/dev/null
@@ -134,7 +136,7 @@ printf '%s' "$closed_tasks" | jq -e --argjson task "$task_id" --argjson retest "
 step 8 "检查历史详情、样本和月报"
 record="$(api_json GET "/records/$retest_id" "$token")"
 printf '%s' "$record" | jq -e --argjson id "$retest_id" '
-  (.id // .inspectionId) == $id and (.items | length) == 6
+  (.id // .inspectionId) == $id and (.items | length) == 8
 ' >/dev/null
 samples="$(api_json GET '/inspection-samples?labelStatus=pending' "$admin_token")"
 printf '%s' "$samples" | jq -e --argjson id "$inspection_id" 'any(.[]; .inspectionId == $id)' >/dev/null

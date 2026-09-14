@@ -18,7 +18,7 @@
     <view class="btn-secondary" bindtap="useTestPack">使用测试包 PACK-001</view>
     <view style="height:16rpx"></view>
     <view class="btn-secondary" bindtap="chooseInspectionImage">{{previewImage ? '重新拍摄/选择照片' : '拍照/选择图片'}}</view>
-    <view class="tip-box">请先选择锅炉、校验材料包，再拍摄检测图片发起巡检。</view>
+    <view class="tip-box">请把软化水两项与炉水六项试纸统一放入操作台，一次完整拍摄。AI只读取试纸数值，检测判断由系统标准完成。</view>
     <view wx:if="{{previewImage}}" class="preview-box">
       <image class="preview-img" src="{{previewImage}}" mode="aspectFill"></image>
       <view class="btn-secondary quality-check-button {{qualityChecking ? 'button-disabled' : ''}}" bindtap="checkPhotoQuality">
@@ -42,12 +42,13 @@
   </view>
 
   <view class="card">
-    <view class="title">试纸读数录入</view>
-    <view class="sub">灰测阶段请按试纸读数填写，照片仍需保留用于后续识别算法训练和人工复核。</view>
+    <view class="title">试纸识别读数</view>
+    <view class="sub">灰测阶段请核对并填写AI读取的数值，系统会分别判断软化水和炉水结果。</view>
     <block wx:for="{{waterItems}}" wx:key="code" wx:for-index="index">
+      <view wx:if="{{item.showGroupTitle}}" class="water-group-title">{{item.groupName}}</view>
       <view class="water-input-row">
         <view>
-          <view class="water-name">{{index + 1}}. {{item.name}}</view>
+          <view class="water-name">{{item.name}}</view>
           <view class="sub">{{item.unit || '无单位'}}</view>
         </view>
         <input class="water-input" type="digit" value="{{item.value}}" placeholder="{{item.placeholder}}" data-index="{{index}}" bindinput="onWaterValueInput" />

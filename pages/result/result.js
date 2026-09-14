@@ -51,6 +51,8 @@ Page({
     })
     return {
       ...raw,
+      sampleType: raw.sampleType || 'boiler_water',
+      sampleTypeName: raw.sampleTypeName || (raw.sampleType === 'combined' ? '软化水 + 炉水' : raw.sampleType === 'softened_water' ? '软化水' : '炉水'),
       items,
       diagnosis,
       summary: raw.summary || '',

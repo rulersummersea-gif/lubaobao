@@ -5,6 +5,7 @@
       <view class="tag {{result.riskClass}}">{{result.riskLabel}}</view>
     </view>
     <view wx:if="{{result.summary}}" class="sub" style="margin-top:12rpx;">{{result.summary}}</view>
+    <view class="sub">检测水样：{{result.sampleTypeName}}</view>
     <view wx:if="{{result.sourceLabel}}" class="sub">读数来源：{{result.sourceLabel}}</view>
     <view wx:if="{{result.ratedPressureMpa}}" class="sub">额定压力：{{result.ratedPressureMpa}} MPa</view>
     <block wx:for="{{result.standardWarnings}}" wx:key="*this">

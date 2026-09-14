@@ -6,6 +6,21 @@ const { getState } = require('../../store/app-state')
 const { refreshOnboardingState } = require('../../utils/onboarding-session')
 const ui = require('../../utils/ui')
 
+const COMBINED_WATER_ITEMS = [
+  { code: 'softened_ph', sourceCode: 'ph', groupName: '软化水', showGroupTitle: true, name: 'pH', unit: '', value: '7.0', placeholder: '如 7.0' },
+  { code: 'softened_hardness', sourceCode: 'hardness', groupName: '软化水', name: '硬度', unit: 'mmol/L', value: '0.02', placeholder: '如 0.02' },
+  { code: 'ph', sourceCode: 'ph', groupName: '炉水', showGroupTitle: true, name: 'pH', unit: '', value: '8.2', placeholder: '如 8.2' },
+  { code: 'phosphate', sourceCode: 'phosphate', groupName: '炉水', name: '磷酸根', unit: 'mg/L', value: '8', placeholder: '如 8' },
+  { code: 'sulfite', sourceCode: 'sulfite', groupName: '炉水', name: '亚硫酸根', unit: 'mg/L', value: '18', placeholder: '如 18' },
+  { code: 'alkalinity', sourceCode: 'alkalinity', groupName: '炉水', name: '总碱度', unit: 'mmol/L', value: '22', placeholder: '如 22' },
+  { code: 'chloride', sourceCode: 'chloride', groupName: '炉水', name: '氯离子', unit: 'mg/L', value: '320', placeholder: '如 320' },
+  { code: 'hardness', sourceCode: 'hardness', groupName: '炉水', name: '硬度', unit: 'mmol/L', value: '0.05', placeholder: '如 0.05' }
+]
+
+function combinedWaterItems() {
+  return COMBINED_WATER_ITEMS.map((item) => ({ ...item }))
+}
+
 Page({
   data: {
     currentBoiler: null,
@@ -17,14 +32,9 @@ Page({
     previewImage: '',
     photoQuality: null,
     retestTask: null,
-    waterItems: [
-      { code: 'ph', name: 'pH', unit: '', value: '8.2', placeholder: '如 8.2' },
-      { code: 'phosphate', name: '磷酸根', unit: 'mg/L', value: '8', placeholder: '如 8' },
-      { code: 'sulfite', name: '亚硫酸根', unit: 'mg/L', value: '18', placeholder: '如 18' },
-      { code: 'alkalinity', name: '总碱度', unit: 'mmol/L', value: '22', placeholder: '如 22' },
-      { code: 'chloride', name: '氯离子', unit: 'mg/L', value: '320', placeholder: '如 320' },
-      { code: 'hardness', name: '硬度', unit: 'mmol/L', value: '0.05', placeholder: '如 0.05' }
-    ],
+    sampleType: 'combined',
+    sampleTypeName: '软化水 + 炉水',
+    waterItems: combinedWaterItems(),
     qualityChecking: false,
     submitting: false
   },
@@ -52,12 +62,16 @@ Page({
       return
     }
     const retestTask = wx.getStorageSync('BG_RETEST_TASK') || null
+    const sampleType = 'combined'
     const currentBoiler = state.currentBoiler || null
     const targetBoilerId = (retestTask && retestTask.boilerId) || (currentBoiler && currentBoiler.id)
     const packChangedBoiler = this.data.materialPackBoilerId && targetBoilerId && Number(this.data.materialPackBoilerId) !== Number(targetBoilerId)
     this.setData({
       currentBoiler,
       retestTask,
+      sampleType,
+      sampleTypeName: '软化水 + 炉水',
+      waterItems: this.data.sampleType === 'combined' ? this.data.waterItems : combinedWaterItems(),
       ...(packChangedBoiler ? {
         inspectionId: null,
         materialPackId: null,
@@ -197,6 +211,7 @@ Page({
     return {
       boilerId: (retestTask && retestTask.boilerId) || (state.currentBoiler && state.currentBoiler.id),
       inspectionType: retestTask ? 'retest' : 'daily',
+      sampleType: 'combined',
       retestTaskId: retestTask ? retestTask.id : null
     }
   },
@@ -226,6 +241,7 @@ Page({
           boilerId: context.boilerId,
           materialPackId: this.data.materialPackId,
           inspectionType: context.inspectionType,
+          sampleType: context.sampleType,
           retestTaskId: context.retestTaskId
         })
         inspectionId = created.inspectionId || created.id
@@ -281,17 +297,17 @@ Page({
       if (!value) throw new Error(`请填写${item.name}`)
       const numberValue = Number(value)
       if (!Number.isFinite(numberValue) || numberValue < 0) throw new Error(`${item.name}读数格式不正确`)
-      if (item.code === 'ph' && numberValue > 14) throw new Error('pH读数应在0至14之间')
+      if (item.sourceCode === 'ph' && numberValue > 14) throw new Error(`${item.groupName}pH读数应在0至14之间`)
       values[item.code] = value
     }
     return values
   },
 
   confirmInspection(boilerName, waterValues) {
-    const lines = this.data.waterItems.map((item) => `${item.name}：${waterValues[item.code]}${item.unit ? ' ' + item.unit : ''}`)
+    const lines = this.data.waterItems.map((item) => `${item.groupName}${item.name}：${waterValues[item.code]}${item.unit ? ' ' + item.unit : ''}`)
     return new Promise((resolve) => {
       wx.showModal({
-        title: `确认提交｜${boilerName}`,
+        title: `确认水质检测｜${boilerName}`,
         content: lines.join('\n'),
         confirmText: '确认提交',
         cancelText: '返回修改',

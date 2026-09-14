@@ -1,0 +1,85 @@
+﻿项目编码,项目,数值,单位,色块,R,G,B,HEX,来源
+soft_ph,软化水 pH,7,pH,1,74,114,43,#4A722B,pH7-14.png
+soft_ph,软化水 pH,7,pH,2,160,216,167,#A0D8A7,pH7-14.png
+soft_ph,软化水 pH,7.5,pH,1,53,111,53,#356F35,pH7-14.png
+soft_ph,软化水 pH,7.5,pH,2,158,215,162,#9ED7A2,pH7-14.png
+soft_ph,软化水 pH,8,pH,1,28,96,75,#1C604B,pH7-14.png
+soft_ph,软化水 pH,8,pH,2,155,214,160,#9BD6A0,pH7-14.png
+soft_ph,软化水 pH,8.5,pH,1,1,84,76,#01544C,pH7-14.png
+soft_ph,软化水 pH,8.5,pH,2,160,217,164,#A0D9A4,pH7-14.png
+soft_ph,软化水 pH,9,pH,1,0,68,89,#004459,pH7-14.png
+soft_ph,软化水 pH,9,pH,2,168,194,129,#A8C281,pH7-14.png
+soft_ph,软化水 pH,9.5,pH,1,0,65,95,#00415F,pH7-14.png
+soft_ph,软化水 pH,9.5,pH,2,164,149,120,#A49578,pH7-14.png
+soft_ph,软化水 pH,10,pH,1,0,65,93,#00415D,pH7-14.png
+soft_ph,软化水 pH,10,pH,2,170,104,116,#AA6874,pH7-14.png
+soft_ph,软化水 pH,10.5,pH,1,0,68,99,#004463,pH7-14.png
+soft_ph,软化水 pH,10.5,pH,2,145,88,121,#915879,pH7-14.png
+soft_ph,软化水 pH,11,pH,1,0,67,104,#004368,pH7-14.png
+soft_ph,软化水 pH,11,pH,2,141,45,106,#8D2D6A,pH7-14.png
+soft_ph,软化水 pH,11.5,pH,1,1,66,104,#014268,pH7-14.png
+soft_ph,软化水 pH,11.5,pH,2,155,41,103,#9B2967,pH7-14.png
+soft_ph,软化水 pH,12,pH,1,1,66,104,#014268,pH7-14.png
+soft_ph,软化水 pH,12,pH,2,146,24,85,#921855,pH7-14.png
+soft_ph,软化水 pH,12.5,pH,1,0,65,103,#004167,pH7-14.png
+soft_ph,软化水 pH,12.5,pH,2,174,29,60,#AE1D3C,pH7-14.png
+soft_ph,软化水 pH,13,pH,1,0,62,99,#003E63,pH7-14.png
+soft_ph,软化水 pH,13,pH,2,178,28,63,#B21C3F,pH7-14.png
+soft_ph,软化水 pH,13.5,pH,1,0,64,102,#004066,pH7-14.png
+soft_ph,软化水 pH,13.5,pH,2,175,32,60,#AF203C,pH7-14.png
+soft_ph,软化水 pH,14,pH,1,5,61,96,#053D60,pH7-14.png
+soft_ph,软化水 pH,14,pH,2,185,20,62,#B9143E,pH7-14.png
+hardness,软化水硬度,0,mg/L,1,198,188,199,#C6BCC7,总硬度0-20.png
+hardness,软化水硬度,5,mg/L,1,193,178,199,#C1B2C7,总硬度0-20.png
+hardness,软化水硬度,10,mg/L,1,204,183,216,#CCB7D8,总硬度0-20.png
+hardness,软化水硬度,20,mg/L,1,198,161,215,#C6A1D7,总硬度0-20.png
+boiler_ph,炉水 pH,7,pH,1,74,114,43,#4A722B,pH7-14.png
+boiler_ph,炉水 pH,7,pH,2,160,216,167,#A0D8A7,pH7-14.png
+boiler_ph,炉水 pH,7.5,pH,1,53,111,53,#356F35,pH7-14.png
+boiler_ph,炉水 pH,7.5,pH,2,158,215,162,#9ED7A2,pH7-14.png
+boiler_ph,炉水 pH,8,pH,1,28,96,75,#1C604B,pH7-14.png
+boiler_ph,炉水 pH,8,pH,2,155,214,160,#9BD6A0,pH7-14.png
+boiler_ph,炉水 pH,8.5,pH,1,1,84,76,#01544C,pH7-14.png
+boiler_ph,炉水 pH,8.5,pH,2,160,217,164,#A0D9A4,pH7-14.png
+boiler_ph,炉水 pH,9,pH,1,0,68,89,#004459,pH7-14.png
+boiler_ph,炉水 pH,9,pH,2,168,194,129,#A8C281,pH7-14.png
+boiler_ph,炉水 pH,9.5,pH,1,0,65,95,#00415F,pH7-14.png
+boiler_ph,炉水 pH,9.5,pH,2,164,149,120,#A49578,pH7-14.png
+boiler_ph,炉水 pH,10,pH,1,0,65,93,#00415D,pH7-14.png
+boiler_ph,炉水 pH,10,pH,2,170,104,116,#AA6874,pH7-14.png
+boiler_ph,炉水 pH,10.5,pH,1,0,68,99,#004463,pH7-14.png
+boiler_ph,炉水 pH,10.5,pH,2,145,88,121,#915879,pH7-14.png
+boiler_ph,炉水 pH,11,pH,1,0,67,104,#004368,pH7-14.png
+boiler_ph,炉水 pH,11,pH,2,141,45,106,#8D2D6A,pH7-14.png
+boiler_ph,炉水 pH,11.5,pH,1,1,66,104,#014268,pH7-14.png
+boiler_ph,炉水 pH,11.5,pH,2,155,41,103,#9B2967,pH7-14.png
+boiler_ph,炉水 pH,12,pH,1,1,66,104,#014268,pH7-14.png
+boiler_ph,炉水 pH,12,pH,2,146,24,85,#921855,pH7-14.png
+boiler_ph,炉水 pH,12.5,pH,1,0,65,103,#004167,pH7-14.png
+boiler_ph,炉水 pH,12.5,pH,2,174,29,60,#AE1D3C,pH7-14.png
+boiler_ph,炉水 pH,13,pH,1,0,62,99,#003E63,pH7-14.png
+boiler_ph,炉水 pH,13,pH,2,178,28,63,#B21C3F,pH7-14.png
+boiler_ph,炉水 pH,13.5,pH,1,0,64,102,#004066,pH7-14.png
+boiler_ph,炉水 pH,13.5,pH,2,175,32,60,#AF203C,pH7-14.png
+boiler_ph,炉水 pH,14,pH,1,5,61,96,#053D60,pH7-14.png
+boiler_ph,炉水 pH,14,pH,2,185,20,62,#B9143E,pH7-14.png
+chloride,氯离子,0,mg/L,1,134,27,4,#861B04,氯离子0-3000.png
+chloride,氯离子,500,mg/L,1,176,45,20,#B02D14,氯离子0-3000.png
+chloride,氯离子,1000,mg/L,1,183,81,43,#B7512B,氯离子0-3000.png
+chloride,氯离子,1500,mg/L,1,203,128,97,#CB8061,氯离子0-3000.png
+chloride,氯离子,2000,mg/L,1,204,168,97,#CCA861,氯离子0-3000.png
+chloride,氯离子,3000,mg/L,1,220,203,126,#DCCB7E,氯离子0-3000.png
+phosphate,磷酸根,0,mg/L,1,224,236,232,#E0ECE8,磷酸根0-500.png
+phosphate,磷酸根,10,mg/L,1,158,213,218,#9ED5DA,磷酸根0-500.png
+phosphate,磷酸根,25,mg/L,1,68,173,194,#44ADC2,磷酸根0-500.png
+phosphate,磷酸根,50,mg/L,1,0,145,172,#0091AC,磷酸根0-500.png
+phosphate,磷酸根,100,mg/L,1,0,122,159,#007A9F,磷酸根0-500.png
+phosphate,磷酸根,250,mg/L,1,0,93,121,#005D79,磷酸根0-500.png
+phosphate,磷酸根,500,mg/L,1,30,76,102,#1E4C66,磷酸根0-500.png
+sulfite,亚硫酸根,0,mg/L,1,1,162,191,#01A2BF,亚硫酸根0-400.png
+sulfite,亚硫酸根,10,mg/L,1,1,171,196,#01ABC4,亚硫酸根0-400.png
+sulfite,亚硫酸根,30,mg/L,1,0,171,188,#00ABBC,亚硫酸根0-400.png
+sulfite,亚硫酸根,50,mg/L,1,0,175,190,#00AFBE,亚硫酸根0-400.png
+sulfite,亚硫酸根,100,mg/L,1,61,182,193,#3DB6C1,亚硫酸根0-400.png
+sulfite,亚硫酸根,180,mg/L,1,97,201,214,#61C9D6,亚硫酸根0-400.png
+sulfite,亚硫酸根,400,mg/L,1,144,212,225,#90D4E1,亚硫酸根0-400.png

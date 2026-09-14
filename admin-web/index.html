@@ -410,11 +410,11 @@
       </div>
       <div class="card">
         <div class="row">
-          <h2 style="margin-right:auto">锅水检测标准</h2>
+          <h2 style="margin-right:auto">水质检测标准</h2>
           <button class="secondary" id="loadStandardsBtn">刷新标准</button>
         </div>
         <table>
-          <thead><tr><th>优先级</th><th>项目</th><th>范围</th><th>下限</th><th>上限</th><th>单位</th><th>压力段</th><th>依据</th><th>状态</th><th>更新</th><th>操作</th></tr></thead>
+          <thead><tr><th>水样</th><th>优先级</th><th>项目</th><th>范围</th><th>下限</th><th>上限</th><th>单位</th><th>压力段</th><th>依据</th><th>状态</th><th>更新</th><th>操作</th></tr></thead>
           <tbody id="standardsBody"></tbody>
         </table>
       </div>
@@ -461,14 +461,16 @@
             <div class="detail-cell" style="margin-top:10px"><span>质量提示</span><b id="sampleQualityFlags">-</b></div>
           </div>
         </div>
-        <h3>六项确认值</h3>
+        <h3 id="sampleValuesTitle">检测确认值</h3>
         <div class="row pack-form" id="sampleValueFields">
-          <div class="field"><label for="sampleValuePh">pH</label><input id="sampleValuePh" type="number" min="0" max="14" step="0.1"></div>
-          <div class="field"><label for="sampleValuePhosphate">磷酸根 mg/L</label><input id="sampleValuePhosphate" type="number" min="0" step="0.01"></div>
-          <div class="field"><label for="sampleValueSulfite">亚硫酸根 mg/L</label><input id="sampleValueSulfite" type="number" min="0" step="0.01"></div>
-          <div class="field"><label for="sampleValueAlkalinity">总碱度 mmol/L</label><input id="sampleValueAlkalinity" type="number" min="0" step="0.01"></div>
-          <div class="field"><label for="sampleValueChloride">氯离子 mg/L</label><input id="sampleValueChloride" type="number" min="0" step="0.01"></div>
-          <div class="field"><label for="sampleValueHardness">硬度 mmol/L</label><input id="sampleValueHardness" type="number" min="0" step="0.001"></div>
+          <div class="field" id="sampleFieldSoftenedPh"><label for="sampleValueSoftenedPh">软化水 pH</label><input id="sampleValueSoftenedPh" type="number" min="0" max="14" step="0.1"></div>
+          <div class="field" id="sampleFieldSoftenedHardness"><label for="sampleValueSoftenedHardness">软化水硬度 mmol/L</label><input id="sampleValueSoftenedHardness" type="number" min="0" step="0.001"></div>
+          <div class="field" id="sampleFieldPh"><label id="sampleLabelPh" for="sampleValuePh">炉水 pH</label><input id="sampleValuePh" type="number" min="0" max="14" step="0.1"></div>
+          <div class="field" id="sampleFieldPhosphate"><label for="sampleValuePhosphate">磷酸根 mg/L</label><input id="sampleValuePhosphate" type="number" min="0" step="0.01"></div>
+          <div class="field" id="sampleFieldSulfite"><label for="sampleValueSulfite">亚硫酸根 mg/L</label><input id="sampleValueSulfite" type="number" min="0" step="0.01"></div>
+          <div class="field" id="sampleFieldAlkalinity"><label for="sampleValueAlkalinity">总碱度 mmol/L</label><input id="sampleValueAlkalinity" type="number" min="0" step="0.01"></div>
+          <div class="field" id="sampleFieldChloride"><label for="sampleValueChloride">氯离子 mg/L</label><input id="sampleValueChloride" type="number" min="0" step="0.01"></div>
+          <div class="field" id="sampleFieldHardness"><label id="sampleLabelHardness" for="sampleValueHardness">炉水硬度 mmol/L</label><input id="sampleValueHardness" type="number" min="0" step="0.001"></div>
           <div class="field wide"><label for="sampleReviewNote">审核备注</label><input id="sampleReviewNote" placeholder="修正原因、光照问题或剔除原因"></div>
           <button id="approveSampleBtn">确认标注</button>
           <button class="danger" id="rejectSampleBtn">剔除样本</button>
@@ -592,11 +594,11 @@ const TAB_META = {
   packs: ['材料包管理', '办理材料包入库、分配、绑定和二维码打印'],
   packBindings: ['扫码与绑定记录', '追踪材料包扫码、绑定、换包、解绑和作废过程'],
   boilers: ['锅炉档案', '维护客户锅炉及设备基础信息'],
-  inspections: ['巡检记录', '查看炉水检测结果和现场图片'],
+  inspections: ['巡检记录', '查看软化水与炉水检测结果和现场图片'],
   samples: ['识别样本', '审核照片质量并沉淀六项试纸标注数据'],
   retests: ['待处理异常', '集中跟进异常结果、专业意见和复测情况'],
   reports: ['月报中心', '汇总企业月度巡检结果'],
-  standards: ['检测标准', '维护炉水六项指标的判断标准'],
+  standards: ['检测标准', '分别维护软化水两项与炉水六项判断标准'],
   users: ['用户与权限', '管理后台账号、角色和企业权限'],
   debug: ['接口诊断', '查看最近一次后台接口响应'],
 };
@@ -1251,13 +1253,14 @@ async function loadStandards() {
   state.standards = standards;
   $('standardsBody').innerHTML = standards.map((item) => `
     <tr>
+      <td>${tag(item.sampleType === 'softened_water' ? '软化水' : '炉水')}</td>
       <td>${esc(item.priority || '-')}</td>
       <td>${esc(item.itemName)}</td>
       <td>${esc(item.displayRange || '-')}</td>
       <td>${item.minValue ?? '-'}</td>
       <td>${item.maxValue ?? '-'}</td>
       <td>${esc(item.unit || '-')}</td>
-      <td>${item.pressureMinMpa ?? '-'} - ${item.pressureMaxMpa ?? '-'} MPa</td>
+      <td>${item.sampleType === 'softened_water' ? '不按压力段' : `${item.pressureMinMpa ?? '-'} - ${item.pressureMaxMpa ?? '-'} MPa`}</td>
       <td>${esc(item.standardSource || '-')}</td>
       <td>${tag(item.enabled ? 'active' : 'disabled')}</td>
       <td>${esc(item.updatedAt || '-')}<br><span class="muted">${esc(item.updatedByName || '')}</span></td>
@@ -1292,7 +1295,7 @@ function editStandard(id) {
   $('standardEnabled').value = item.enabled ? 'true' : 'false';
   $('standardSource').value = item.standardSource || '';
   $('standardNote').value = item.standardNote || '';
-  $('standardFormTitle').textContent = `编辑标准：${item.itemName}`;
+  $('standardFormTitle').textContent = `编辑标准：${item.sampleType === 'softened_water' ? '软化水' : '炉水'} · ${item.itemName}`;
 }
 async function saveStandard() {
   const id = $('standardId').value;
@@ -1313,7 +1316,7 @@ async function saveStandard() {
   await loadStandards();
 }
 async function resetStandards() {
-  if (!confirm('确认恢复6项锅水检测默认标准？')) return;
+  if (!confirm('确认恢复炉水六项与软化水两项默认配置？')) return;
   await api('/water-quality-limits/reset', { method: 'POST' });
   resetStandardForm();
   await loadStandards();
@@ -1329,7 +1332,7 @@ async function loadSamples() {
   $('samplesBody').innerHTML = state.samples.map((item) => {
     const imageUrl = base() + item.imageUrl;
     return `<tr>
-      <td><b>#${item.inspectionId}</b><div class="muted">${esc(item.packCode || '-')}</div></td>
+      <td><b>#${item.inspectionId}</b><div class="muted">${esc(item.sampleTypeName || '炉水')}｜${esc(item.packCode || '-')}</div></td>
       <td>${esc(item.enterpriseName || '-')}<div class="muted">${esc(item.boilerName || '-')}</div></td>
       <td><a href="${esc(imageUrl)}" target="_blank">查看照片</a><div class="muted">${item.imageWidth || '-'} × ${item.imageHeight || '-'}</div></td>
       <td>${tag(sampleQualityText(item.qualityStatus))}<div class="muted">评分 ${item.qualityScore}</div></td>
@@ -1346,7 +1349,18 @@ function openSampleReview(inspectionId) {
   if (!sample) return;
   state.currentSample = sample;
   const imageUrl = base() + sample.imageUrl;
-  $('sampleReviewTitle').textContent = `样本审核 · 巡检 #${sample.inspectionId}`;
+  const softened = sample.sampleType === 'softened_water';
+  const combined = sample.sampleType === 'combined';
+  $('sampleReviewTitle').textContent = `样本审核 · ${sample.sampleTypeName || '炉水'} · 巡检 #${sample.inspectionId}`;
+  $('sampleValuesTitle').textContent = combined ? '统一照片确认值（软化水两项 + 炉水六项）' : softened ? '软化水确认值（pH、硬度）' : '炉水六项确认值';
+  $('sampleLabelPh').textContent = softened ? '软化水 pH' : '炉水 pH';
+  $('sampleLabelHardness').textContent = softened ? '软化水硬度 mmol/L' : '炉水硬度 mmol/L';
+  ['SoftenedPh', 'SoftenedHardness'].forEach((name) => {
+    $('sampleField' + name).style.display = combined ? '' : 'none';
+  });
+  ['Phosphate', 'Sulfite', 'Alkalinity', 'Chloride'].forEach((name) => {
+    $('sampleField' + name).style.display = softened ? 'none' : '';
+  });
   $('sampleImage').src = imageUrl;
   $('sampleImageLink').href = imageUrl;
   $('sampleQualityDetail').innerHTML = `
@@ -1358,6 +1372,8 @@ function openSampleReview(inspectionId) {
     <div class="detail-cell"><span>图片大小</span><b>${sample.sizeBytes ? (sample.sizeBytes / 1024).toFixed(0) + ' KB' : '-'}</b></div>`;
   $('sampleQualityFlags').textContent = (sample.qualityFlags || []).map((item) => item.message).join('；') || '未发现基础质量问题';
   const values = Object.keys(sample.confirmedValues || {}).length ? sample.confirmedValues : Object.keys(sample.manualValues || {}).length ? sample.manualValues : sample.aiValues || {};
+  $('sampleValueSoftenedPh').value = values.softened_ph || '';
+  $('sampleValueSoftenedHardness').value = values.softened_hardness || '';
   $('sampleValuePh').value = values.ph || '';
   $('sampleValuePhosphate').value = values.phosphate || '';
   $('sampleValueSulfite').value = values.sulfite || '';
@@ -1369,14 +1385,21 @@ function openSampleReview(inspectionId) {
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 function sampleConfirmedValues() {
-  return {
+  const values = {
     ph: $('sampleValuePh').value.trim(),
-    phosphate: $('sampleValuePhosphate').value.trim(),
-    sulfite: $('sampleValueSulfite').value.trim(),
-    alkalinity: $('sampleValueAlkalinity').value.trim(),
-    chloride: $('sampleValueChloride').value.trim(),
     hardness: $('sampleValueHardness').value.trim(),
   };
+  if (state.currentSample && state.currentSample.sampleType === 'combined') {
+    values.softened_ph = $('sampleValueSoftenedPh').value.trim();
+    values.softened_hardness = $('sampleValueSoftenedHardness').value.trim();
+  }
+  if (state.currentSample && state.currentSample.sampleType !== 'softened_water') {
+    values.phosphate = $('sampleValuePhosphate').value.trim();
+    values.sulfite = $('sampleValueSulfite').value.trim();
+    values.alkalinity = $('sampleValueAlkalinity').value.trim();
+    values.chloride = $('sampleValueChloride').value.trim();
+  }
+  return values;
 }
 async function reviewSample(labelStatus) {
   if (!state.currentSample) return;
@@ -1400,7 +1423,7 @@ async function loadInspections() {
   const list = await api('/inspections' + (params.toString() ? '?' + params.toString() : ''));
   $('inspectionsBody').innerHTML = list.map((i) => `
     <tr>
-      <td>${i.inspectionId}</td><td>${i.boilerName || i.boilerId}</td><td>${i.materialPackId}</td><td>${tag(i.status)}</td><td>${i.score || '-'}</td><td>${i.summary || '-'}</td>
+      <td>${i.inspectionId}<div class="muted">${esc(i.sampleTypeName || '炉水')}</div></td><td>${i.boilerName || i.boilerId}</td><td>${i.materialPackId}</td><td>${tag(i.status)}</td><td>${i.score || '-'}</td><td>${i.summary || '-'}</td>
       <td>${i.imageUrl ? `<a href="${base()}${i.imageUrl}" target="_blank">查看</a>` : '-'}</td>
       <td><button class="secondary" onclick="loadInspectionDetail(${i.inspectionId})">详情</button></td>
     </tr>`).join('');

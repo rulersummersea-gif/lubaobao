@@ -103,6 +103,16 @@
   margin-top: 22rpx;
 }
 
+.water-group-title {
+  margin-top: 28rpx;
+  padding: 18rpx 20rpx;
+  border-left: 8rpx solid #2563eb;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 34rpx;
+  font-weight: 800;
+}
+
 .water-input-row {
   display: grid;
   grid-template-columns: 1fr 220rpx;

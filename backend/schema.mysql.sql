@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS inspections (
   boiler_id BIGINT NOT NULL,
   material_pack_id BIGINT NOT NULL,
   inspection_type VARCHAR(32) NOT NULL DEFAULT 'daily',
+  sample_type VARCHAR(32) NOT NULL DEFAULT 'combined',
   retest_task_id BIGINT NULL,
   inspector_user_id BIGINT NULL,
   inspector_name VARCHAR(64) NULL,

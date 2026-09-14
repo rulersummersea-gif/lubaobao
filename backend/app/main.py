@@ -39,7 +39,7 @@ WX_CODE_ENV_VERSION = os.getenv("WX_CODE_ENV_VERSION", "release")
 PASSWORD_ITERATIONS = 200000
 WX_ACCESS_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
-app = FastAPI(title="Lubaobao API", version="0.14.0-inspection-samples")
+app = FastAPI(title="Lubaobao API", version="0.16.0-unified-capture")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -213,6 +213,39 @@ for segment in PRESSURE_SEGMENTS:
 
 STANDARD_SOURCE = "GB/T 1576 工业锅炉水质"
 STANDARD_NOTE = "工业蒸汽锅炉锅水/炉水，按压力段灰测配置；正式上线需按锅炉额定压力和现场水处理方式复核。"
+SAMPLE_TYPE_BOILER_WATER = "boiler_water"
+SAMPLE_TYPE_SOFTENED_WATER = "softened_water"
+SAMPLE_TYPE_COMBINED = "combined"
+SAMPLE_TYPE_NAMES = {
+    SAMPLE_TYPE_BOILER_WATER: "炉水",
+    SAMPLE_TYPE_SOFTENED_WATER: "软化水",
+    SAMPLE_TYPE_COMBINED: "软化水 + 炉水",
+}
+SOFTENED_WATER_ITEM_CODES = ("ph", "hardness")
+SOFTENED_WATER_STANDARD_SOURCE = "企业内控标准（待配置）"
+SOFTENED_WATER_STANDARD_NOTE = "软化器出口软化水；pH与硬度限值需按现场水处理方案和适用标准在后台确认后启用。"
+SOFTENED_WATER_OVERRIDES = {
+    "ph": {
+        "priority": 1,
+        "meaning": "判断软化器出口水的酸碱状态，作为补水水质变化和后续锅炉水处理的参考。",
+        "maintenance": "异常时先重新取样复测，并检查原水变化、软化器运行和后续水处理方案；不直接套用炉水加药建议。",
+    },
+    "hardness": {
+        "priority": 2,
+        "meaning": "判断软化器是否发生硬度泄漏，是发现再生不足、树脂失效或旁通异常的核心指标。",
+        "maintenance": "偏高时检查盐箱、再生周期、树脂和旁通阀，处理后重新取样；确认合格前避免继续向锅炉补入异常软化水。",
+    },
+}
+COMBINED_VALUE_ITEMS = (
+    ("softened_ph", "ph", SAMPLE_TYPE_SOFTENED_WATER, "软化水pH"),
+    ("softened_hardness", "hardness", SAMPLE_TYPE_SOFTENED_WATER, "软化水硬度"),
+    ("ph", "ph", SAMPLE_TYPE_BOILER_WATER, "炉水pH"),
+    ("phosphate", "phosphate", SAMPLE_TYPE_BOILER_WATER, "炉水磷酸根"),
+    ("sulfite", "sulfite", SAMPLE_TYPE_BOILER_WATER, "炉水亚硫酸根"),
+    ("alkalinity", "alkalinity", SAMPLE_TYPE_BOILER_WATER, "炉水总碱度"),
+    ("chloride", "chloride", SAMPLE_TYPE_BOILER_WATER, "炉水氯离子"),
+    ("hardness", "hardness", SAMPLE_TYPE_BOILER_WATER, "炉水硬度"),
+)
 
 
 def encode_token_part(payload: bytes) -> str:
@@ -420,6 +453,32 @@ def seed_water_quality_limits(conn) -> None:
                 STANDARD_NOTE,
                 now(),
             ),
+        )
+    softened_insert_sql = (
+        """
+        INSERT INTO water_quality_limits(
+          item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa,
+          min_value, max_value, unit, display_range, standard_source, standard_note, enabled, created_at
+        ) VALUES(?, 'steam', 'softened_water', 0, 999, NULL, NULL, ?, '待配置', ?, ?, 1, ?)
+        ON DUPLICATE KEY UPDATE
+          unit = VALUES(unit), standard_source = VALUES(standard_source),
+          standard_note = VALUES(standard_note), enabled = 1
+        """
+        if DB_DRIVER == "mysql"
+        else """
+        INSERT INTO water_quality_limits(
+          item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa,
+          min_value, max_value, unit, display_range, standard_source, standard_note, enabled, created_at
+        ) VALUES(?, 'steam', 'softened_water', 0, 999, NULL, NULL, ?, '待配置', ?, ?, 1, ?)
+        ON CONFLICT(item_code, boiler_type, sample_type, pressure_min_mpa, pressure_max_mpa) DO UPDATE SET
+          unit = excluded.unit, standard_source = excluded.standard_source,
+          standard_note = excluded.standard_note, enabled = 1
+        """
+    )
+    for code, unit in (("ph", ""), ("hardness", "mmol/L")):
+        conn.execute(
+            softened_insert_sql,
+            (code, unit, SOFTENED_WATER_STANDARD_SOURCE, SOFTENED_WATER_STANDARD_NOTE, now()),
         )
 
 
@@ -967,7 +1026,9 @@ def ensure_schema_updates(conn) -> None:
     ensure_column(conn, "retest_tasks", "resolution_type", "VARCHAR(32) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "retest_tasks", "resolution_note", "VARCHAR(512) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "retest_tasks", "resolved_at", "DATETIME NULL" if DB_DRIVER == "mysql" else "TEXT")
+    ensure_column(conn, "retest_tasks", "sample_type", "VARCHAR(32) NOT NULL DEFAULT 'boiler_water'" if DB_DRIVER == "mysql" else "TEXT NOT NULL DEFAULT 'boiler_water'")
     ensure_column(conn, "inspections", "retest_task_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
+    ensure_column(conn, "inspections", "sample_type", "VARCHAR(32) NOT NULL DEFAULT 'combined'" if DB_DRIVER == "mysql" else "TEXT NOT NULL DEFAULT 'combined'")
     ensure_column(conn, "users", "wx_openid", "VARCHAR(128) NULL" if DB_DRIVER == "mysql" else "TEXT")
     ensure_column(conn, "users", "last_boiler_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
     ensure_column(conn, "inspections", "inspector_user_id", "BIGINT NULL" if DB_DRIVER == "mysql" else "INTEGER")
@@ -1218,6 +1279,7 @@ def init_sqlite() -> None:
               boiler_id INTEGER NOT NULL,
               material_pack_id INTEGER NOT NULL,
               inspection_type TEXT NOT NULL DEFAULT 'daily',
+              sample_type TEXT NOT NULL DEFAULT 'combined',
               retest_task_id INTEGER,
               image_url TEXT,
               status TEXT NOT NULL DEFAULT 'created',
@@ -1250,6 +1312,7 @@ def init_sqlite() -> None:
               inspection_id INTEGER NOT NULL,
               boiler_id INTEGER,
               boiler_name TEXT,
+              sample_type TEXT NOT NULL DEFAULT 'boiler_water',
               risk_code TEXT NOT NULL,
               risk_type TEXT,
               level TEXT NOT NULL DEFAULT 'warning',
@@ -1386,6 +1449,7 @@ def init_mysql() -> None:
               boiler_id BIGINT NOT NULL,
               material_pack_id BIGINT NOT NULL,
               inspection_type VARCHAR(32) NOT NULL DEFAULT 'daily',
+              sample_type VARCHAR(32) NOT NULL DEFAULT 'combined',
               retest_task_id BIGINT NULL,
               image_url VARCHAR(512) NULL,
               status VARCHAR(20) NOT NULL DEFAULT 'created',
@@ -1421,6 +1485,7 @@ def init_mysql() -> None:
               inspection_id BIGINT NOT NULL,
               boiler_id BIGINT NULL,
               boiler_name VARCHAR(128) NULL,
+              sample_type VARCHAR(32) NOT NULL DEFAULT 'boiler_water',
               risk_code VARCHAR(64) NOT NULL,
               risk_type VARCHAR(64) NULL,
               level VARCHAR(20) NOT NULL DEFAULT 'warning',
@@ -1662,6 +1727,7 @@ class InspectionCreateReq(BaseModel):
     boilerId: int
     materialPackId: int
     inspectionType: str = "daily"
+    sampleType: str = SAMPLE_TYPE_COMBINED
     retestTaskId: Optional[int] = None
 
 
@@ -1792,7 +1858,8 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
     inspection = row_to_dict(
         conn.execute(
             """
-            SELECT i.enterprise_id AS enterpriseId, i.boiler_id AS boilerId, b.name AS boilerName
+            SELECT i.enterprise_id AS enterpriseId, i.boiler_id AS boilerId,
+                   i.sample_type AS sampleType, b.name AS boilerName
             FROM inspections i
             LEFT JOIN boilers b ON b.id = i.boiler_id
             WHERE i.id = ?
@@ -1805,10 +1872,10 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
     insert_sql = (
         """
         INSERT INTO retest_tasks(
-          enterprise_id, inspection_id, boiler_id, boiler_name, risk_code, risk_type,
+          enterprise_id, inspection_id, boiler_id, boiler_name, sample_type, risk_code, risk_type,
           level, title, description, field_action, retest_plan, support_notice,
           related_item_names, action_text, status, created_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         ON DUPLICATE KEY UPDATE
           risk_type = VALUES(risk_type),
           level = VALUES(level),
@@ -1824,10 +1891,10 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
         if DB_DRIVER == "mysql"
         else """
         INSERT INTO retest_tasks(
-          enterprise_id, inspection_id, boiler_id, boiler_name, risk_code, risk_type,
+          enterprise_id, inspection_id, boiler_id, boiler_name, sample_type, risk_code, risk_type,
           level, title, description, field_action, retest_plan, support_notice,
           related_item_names, action_text, status, created_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         ON CONFLICT(inspection_id, risk_code) DO UPDATE SET
           risk_type = excluded.risk_type,
           level = excluded.level,
@@ -1851,6 +1918,7 @@ def create_retest_tasks_from_result(conn, result: dict) -> None:
                 inspection_id,
                 inspection.get("boilerId") or result.get("boilerId"),
                 inspection.get("boilerName") or result.get("boilerName"),
+                item.get("sampleType") or inspection.get("sampleType") or result.get("sampleType") or SAMPLE_TYPE_BOILER_WATER,
                 item.get("riskCode") or f"risk_{index}",
                 item.get("riskType") or "",
                 item.get("level") or "warning",
@@ -1890,6 +1958,8 @@ def retest_task_to_dict(row) -> dict:
         "inspectionId": item["inspection_id"],
         "boilerId": item["boiler_id"],
         "boilerName": item["boiler_name"],
+        "sampleType": item.get("sample_type") or SAMPLE_TYPE_BOILER_WATER,
+        "sampleTypeName": SAMPLE_TYPE_NAMES.get(item.get("sample_type") or SAMPLE_TYPE_BOILER_WATER, "炉水"),
         "riskCode": item["risk_code"],
         "riskType": item["risk_type"],
         "level": item["level"],
@@ -4119,7 +4189,7 @@ def reset_water_quality_limits(authorization: Optional[str] = Header(None)):
         seed_water_quality_limits(conn)
         retire_legacy_broad_limits(conn)
         conn.execute(
-            "UPDATE water_quality_limits SET updated_at = ?, updated_by = ?, updated_by_name = ? WHERE boiler_type = 'steam' AND sample_type = 'boiler_water'",
+            "UPDATE water_quality_limits SET updated_at = ?, updated_by = ?, updated_by_name = ? WHERE boiler_type = 'steam' AND sample_type IN ('boiler_water', 'softened_water')",
             (now(), current_user.get("id"), current_user.get("name") or current_user.get("username")),
         )
         return load_water_quality_limits(conn)
@@ -4150,7 +4220,8 @@ def get_inspection_boiler_context(conn, inspection_id: int) -> dict:
     row = row_to_dict(
         conn.execute(
             """
-            SELECT i.id AS inspectionId, i.boiler_id AS boilerId, b.name AS boilerName,
+            SELECT i.id AS inspectionId, i.boiler_id AS boilerId, i.sample_type AS sampleType,
+                   b.name AS boilerName,
                    b.rated_pressure AS ratedPressure
             FROM inspections i
             LEFT JOIN boilers b ON b.id = i.boiler_id
@@ -4166,14 +4237,19 @@ def get_inspection_boiler_context(conn, inspection_id: int) -> dict:
         "inspectionId": row["inspectionId"],
         "boilerId": row["boilerId"],
         "boilerName": row.get("boilerName") or "",
+        "sampleType": row.get("sampleType") or SAMPLE_TYPE_BOILER_WATER,
         "ratedPressure": row.get("ratedPressure") or "",
         "ratedPressureMpa": pressure,
     }
 
 
-def get_water_test_templates(conn, rated_pressure_mpa: Optional[float]) -> list[dict]:
+def get_water_test_templates(conn, rated_pressure_mpa: Optional[float], sample_type: str) -> list[dict]:
+    if sample_type not in (SAMPLE_TYPE_BOILER_WATER, SAMPLE_TYPE_SOFTENED_WATER):
+        raise HTTPException(status_code=400, detail="水样类型仅支持炉水或软化水")
+    item_codes = SOFTENED_WATER_ITEM_CODES if sample_type == SAMPLE_TYPE_SOFTENED_WATER else tuple(item["code"] for item in WATER_TEST_ITEMS)
+    placeholders = ",".join("?" for _ in item_codes)
     rows = conn.execute(
-        """
+        f"""
         SELECT i.code, i.name, i.priority, i.method, i.meaning, i.maintenance,
                l.min_value AS standardMin, l.max_value AS standardMax, l.unit,
                l.display_range AS normalRange, l.standard_source AS standardSource,
@@ -4185,26 +4261,36 @@ def get_water_test_templates(conn, rated_pressure_mpa: Optional[float]) -> list[
           FROM water_quality_limits l2
           WHERE l2.item_code = i.code
             AND l2.boiler_type = 'steam'
-            AND l2.sample_type = 'boiler_water'
+            AND l2.sample_type = ?
             AND l2.enabled = 1
-            AND ? IS NOT NULL
             AND (
-              l2.pressure_min_mpa IS NULL
-              OR (l2.pressure_min_mpa = 0 AND l2.pressure_min_mpa <= ?)
-              OR l2.pressure_min_mpa < ?
+              ? = 'softened_water'
+              OR (
+                ? IS NOT NULL
+                AND (
+                  l2.pressure_min_mpa IS NULL
+                  OR (l2.pressure_min_mpa = 0 AND l2.pressure_min_mpa <= ?)
+                  OR l2.pressure_min_mpa < ?
+                )
+                AND (l2.pressure_max_mpa IS NULL OR l2.pressure_max_mpa >= ?)
+              )
             )
-            AND (l2.pressure_max_mpa IS NULL OR l2.pressure_max_mpa >= ?)
           ORDER BY COALESCE(l2.pressure_min_mpa, -999999) DESC,
                    COALESCE(l2.pressure_max_mpa, 999999) ASC,
                    l2.id ASC
           LIMIT 1
         )
-        WHERE i.enabled = 1
+        WHERE i.enabled = 1 AND i.code IN ({placeholders})
         ORDER BY i.priority
         """,
-        (rated_pressure_mpa, rated_pressure_mpa, rated_pressure_mpa, rated_pressure_mpa),
+        (sample_type, sample_type, rated_pressure_mpa, rated_pressure_mpa, rated_pressure_mpa, rated_pressure_mpa, *item_codes),
     )
-    return [row_to_dict(row) for row in rows]
+    templates = [row_to_dict(row) for row in rows]
+    if sample_type == SAMPLE_TYPE_SOFTENED_WATER:
+        for template in templates:
+            override = SOFTENED_WATER_OVERRIDES[template["code"]]
+            template.update(override)
+    return sorted(templates, key=lambda item: item["priority"])
 
 
 def judge_item_status(value: str, standard_min, standard_max) -> str:
@@ -4443,8 +4529,50 @@ def build_boiler_water_diagnosis(items: list[dict], standard_warnings: list[str]
     return score, risk_level, summary, diagnosis
 
 
+def build_softened_water_diagnosis(items: list[dict], standard_warnings: list[str]) -> tuple[int, str, str, list[dict]]:
+    item_map = {item["code"]: item for item in items}
+    diagnosis = []
+    hardness = item_map.get("hardness")
+    ph = item_map.get("ph")
+    if hardness and item_high(hardness):
+        diagnosis.append(
+            build_diagnosis_item(
+                "softener_breakthrough", "软化失效风险", "high", "软化水硬度偏高",
+                "软化器出口硬度超过已配置范围，可能存在再生不足、树脂失效或旁通异常。",
+                "检查盐箱、再生周期、树脂和旁通阀，处理后重新取样。",
+                "检查盐箱、再生周期、树脂和旁通阀；确认复测正常前，避免继续补入异常软化水。",
+                "处理后建议重新取软化器出口水复测硬度和pH。",
+                "后台提醒：复核软化器运行记录、原水硬度、再生参数和树脂状态。",
+                ["hardness"], item_map,
+            )
+        )
+    if ph and ph.get("status") == "warning":
+        diagnosis.append(
+            build_diagnosis_item(
+                "softened_water_ph", "软化水酸碱度异常", "warning", "软化水pH偏离配置范围",
+                "软化器出口pH偏离企业已配置范围，需要先排除取样和试纸读数误差。",
+                "重新取样复测，并检查原水变化、软化器运行和后续水处理方案。",
+                "重新取软化器出口水复测pH；不要直接套用炉水加药或排污建议。",
+                "建议复测pH和硬度，并由后台服务人员结合现场方案判断。",
+                "后台提醒：结合原水pH、软化器工况和锅炉补水方案给出专业意见。",
+                ["ph"], item_map,
+            )
+        )
+    warning_items = [item for item in items if item.get("status") == "warning"]
+    unknown_items = [item for item in items if item.get("status") == "unknown"]
+    score = max(60, 100 - len(warning_items) * 8 - len(unknown_items) * 4 - sum(1 for item in diagnosis if item.get("level") == "high") * 8)
+    risk_level = "warning" if warning_items or unknown_items or standard_warnings else "normal"
+    if warning_items:
+        summary = f"软化水检测发现{'、'.join(item['name'] for item in warning_items)} {len(warning_items)}项预警。"
+    elif unknown_items or standard_warnings:
+        summary = "软化水pH与硬度已记录，但部分判断标准尚未配置，请由后台确认标准后再作结论。"
+    else:
+        summary = "软化水pH与硬度均在当前配置范围内，建议按计划继续检测。"
+    return score, risk_level, summary, diagnosis
+
+
 def inspection_result_payload(inspection_id: int, conn=None, input_values: Optional[dict] = None) -> dict:
-    sample_values = {
+    boiler_sample_values = {
         "ph": "8.2",
         "phosphate": "8",
         "sulfite": "18",
@@ -4452,7 +4580,8 @@ def inspection_result_payload(inspection_id: int, conn=None, input_values: Optio
         "chloride": "320",
         "hardness": "0.05",
     }
-    source_values = input_values or sample_values
+    softened_sample_values = {"ph": "7.0", "hardness": "0.02"}
+    source_values = input_values or {}
     recognition_source = "manual_gray" if input_values else "sample_fallback"
     context = get_inspection_boiler_context(conn, inspection_id) if conn else {
         "inspectionId": inspection_id,
@@ -4460,32 +4589,57 @@ def inspection_result_payload(inspection_id: int, conn=None, input_values: Optio
         "boilerName": "",
         "ratedPressure": "",
         "ratedPressureMpa": 1.25,
+        "sampleType": SAMPLE_TYPE_BOILER_WATER,
     }
-    templates = get_water_test_templates(conn, context["ratedPressureMpa"]) if conn else [
-        {
-            **item,
-            "standardMin": next((limit["min"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), None),
-            "standardMax": next((limit["max"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), None),
-            "unit": next((limit["unit"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), ""),
-            "normalRange": item["normalRange"],
-            "standardSource": STANDARD_SOURCE,
-            "standardNote": STANDARD_NOTE,
-            "pressureMinMpa": 0,
-            "pressureMaxMpa": 3.8,
-        }
-        for item in WATER_TEST_ITEMS
-    ]
+    sample_type = context.get("sampleType") or SAMPLE_TYPE_BOILER_WATER
+    group_types = (
+        (SAMPLE_TYPE_SOFTENED_WATER, SAMPLE_TYPE_BOILER_WATER)
+        if sample_type == SAMPLE_TYPE_COMBINED
+        else (sample_type,)
+    )
     items = []
-    for template in templates:
-        value = str(source_values.get(template["code"], sample_values[template["code"]])).strip()
-        standard_min = decimal_to_number(template.get("standardMin"))
-        standard_max = decimal_to_number(template.get("standardMax"))
-        standard_missing = context["ratedPressureMpa"] is None or (standard_min is None and standard_max is None)
-        status = "unknown" if standard_missing else judge_item_status(value, standard_min, standard_max)
-        segment = pressure_segment_text(template.get("pressureMinMpa"), template.get("pressureMaxMpa"))
-        items.append(
+    diagnosis = []
+    groups = []
+    standard_warnings = []
+    risk_rank = {"normal": 0, "warning": 1, "high": 2}
+    combined_risk_level = "normal"
+    scores = []
+
+    for group_type in group_types:
+        templates = get_water_test_templates(conn, context["ratedPressureMpa"], group_type) if conn else [
             {
+                **item,
+                "standardMin": next((limit["min"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), None),
+                "standardMax": next((limit["max"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), None),
+                "unit": next((limit["unit"] for limit in WATER_QUALITY_LIMITS if limit["code"] == item["code"]), ""),
+                "normalRange": item["normalRange"],
+                "standardSource": STANDARD_SOURCE,
+                "standardNote": STANDARD_NOTE,
+                "pressureMinMpa": 0,
+                "pressureMaxMpa": 3.8,
+            }
+            for item in WATER_TEST_ITEMS
+            if group_type == SAMPLE_TYPE_BOILER_WATER or item["code"] in SOFTENED_WATER_ITEM_CODES
+        ]
+        if group_type == SAMPLE_TYPE_SOFTENED_WATER:
+            for template in templates:
+                template.update(SOFTENED_WATER_OVERRIDES[template["code"]])
+                if not conn:
+                    template.update({"standardMin": None, "standardMax": None, "normalRange": "待配置", "standardSource": SOFTENED_WATER_STANDARD_SOURCE, "standardNote": SOFTENED_WATER_STANDARD_NOTE})
+
+        group_items = []
+        defaults = softened_sample_values if group_type == SAMPLE_TYPE_SOFTENED_WATER else boiler_sample_values
+        for template in templates:
+            input_code = f"softened_{template['code']}" if sample_type == SAMPLE_TYPE_COMBINED and group_type == SAMPLE_TYPE_SOFTENED_WATER else template["code"]
+            value = str(source_values.get(input_code, defaults[template["code"]])).strip()
+            standard_min = decimal_to_number(template.get("standardMin"))
+            standard_max = decimal_to_number(template.get("standardMax"))
+            standard_missing = (group_type == SAMPLE_TYPE_BOILER_WATER and context["ratedPressureMpa"] is None) or (standard_min is None and standard_max is None)
+            status = "unknown" if standard_missing else judge_item_status(value, standard_min, standard_max)
+            segment = pressure_segment_text(template.get("pressureMinMpa"), template.get("pressureMaxMpa"))
+            group_items.append({
                 "code": template["code"],
+                "sourceCode": template["code"],
                 "name": template["name"],
                 "value": value,
                 "confidence": 1 if input_values else 0.72,
@@ -4499,29 +4653,73 @@ def inspection_result_payload(inspection_id: int, conn=None, input_values: Optio
                 "standardMin": standard_min,
                 "standardMax": standard_max,
                 "standardSource": "" if standard_missing else (template.get("standardSource") or STANDARD_SOURCE),
-                "standardNote": "未匹配到适用压力段标准" if standard_missing else (template.get("standardNote") or STANDARD_NOTE),
+                "standardNote": (SOFTENED_WATER_STANDARD_NOTE if group_type == SAMPLE_TYPE_SOFTENED_WATER else "未匹配到适用压力段标准") if standard_missing else (template.get("standardNote") or STANDARD_NOTE),
                 "pressureMinMpa": decimal_to_number(template.get("pressureMinMpa")),
                 "pressureMaxMpa": decimal_to_number(template.get("pressureMaxMpa")),
-                "pressureSegment": segment,
-                "ratedPressureMpa": context["ratedPressureMpa"],
+                "pressureSegment": "" if group_type == SAMPLE_TYPE_SOFTENED_WATER else segment,
+                "ratedPressureMpa": None if group_type == SAMPLE_TYPE_SOFTENED_WATER else context["ratedPressureMpa"],
                 "standardMatched": not standard_missing,
                 "meaning": template["meaning"],
                 "maintenance": template["maintenance"],
-            }
+                "sampleType": group_type,
+                "sampleTypeName": SAMPLE_TYPE_NAMES[group_type],
+            })
+
+        group_warnings = []
+        unmatched = [item["name"] for item in group_items if not item["standardMatched"]]
+        if group_type == SAMPLE_TYPE_BOILER_WATER and context["ratedPressureMpa"] is None:
+            group_warnings.append("锅炉档案未填写额定压力，无法自动匹配炉水压力段标准。")
+        if unmatched:
+            group_warnings.append(
+                f"{'、'.join(unmatched)}尚未配置软化水判断标准。"
+                if group_type == SAMPLE_TYPE_SOFTENED_WATER
+                else f"{'、'.join(unmatched)}未匹配到适用炉水压力段标准。"
+            )
+        group_score, group_risk, group_summary, group_diagnosis = (
+            build_softened_water_diagnosis(group_items, group_warnings)
+            if group_type == SAMPLE_TYPE_SOFTENED_WATER
+            else build_boiler_water_diagnosis(group_items, group_warnings)
         )
-    unmatched = [item["name"] for item in items if not item["standardMatched"]]
-    standard_warnings = []
-    if context["ratedPressureMpa"] is None:
-        standard_warnings.append("锅炉档案未填写额定压力，无法自动匹配压力段标准。")
-    if unmatched:
-        standard_warnings.append(f"{'、'.join(unmatched)}未匹配到适用压力段标准。")
-    score, risk_level, summary, diagnosis = build_boiler_water_diagnosis(items, standard_warnings)
+        output_items = []
+        for item in group_items:
+            output = dict(item)
+            if sample_type == SAMPLE_TYPE_COMBINED and group_type == SAMPLE_TYPE_SOFTENED_WATER:
+                output["code"] = f"softened_{item['code']}"
+                output["name"] = f"软化水{item['name']}"
+            elif sample_type == SAMPLE_TYPE_COMBINED:
+                output["name"] = f"炉水{item['name']}"
+            output_items.append(output)
+        for diagnosis_item in group_diagnosis:
+            diagnosis_item["sampleType"] = group_type
+            diagnosis_item["sampleTypeName"] = SAMPLE_TYPE_NAMES[group_type]
+        items.extend(output_items)
+        diagnosis.extend(group_diagnosis)
+        standard_warnings.extend(group_warnings)
+        scores.append(group_score)
+        if risk_rank.get(group_risk, 1) > risk_rank.get(combined_risk_level, 0):
+            combined_risk_level = group_risk
+        groups.append({
+            "sampleType": group_type,
+            "sampleTypeName": SAMPLE_TYPE_NAMES[group_type],
+            "score": group_score,
+            "riskLevel": group_risk,
+            "summary": group_summary,
+            "items": output_items,
+            "diagnosis": group_diagnosis,
+            "standardWarnings": group_warnings,
+        })
+
+    score = min(scores) if scores else 0
+    risk_level = combined_risk_level
+    summary = "；".join(f"{group['sampleTypeName']}：{group['summary']}" for group in groups) if sample_type == SAMPLE_TYPE_COMBINED else groups[0]["summary"]
     return {
         "inspectionId": inspection_id,
         "boilerId": context["boilerId"],
         "boilerName": context["boilerName"],
-        "ratedPressure": context["ratedPressure"],
-        "ratedPressureMpa": context["ratedPressureMpa"],
+        "ratedPressure": "" if sample_type == SAMPLE_TYPE_SOFTENED_WATER else context["ratedPressure"],
+        "ratedPressureMpa": None if sample_type == SAMPLE_TYPE_SOFTENED_WATER else context["ratedPressureMpa"],
+        "sampleType": sample_type,
+        "sampleTypeName": SAMPLE_TYPE_NAMES[sample_type],
         "score": score,
         "status": "done",
         "riskLevel": risk_level,
@@ -4530,6 +4728,7 @@ def inspection_result_payload(inspection_id: int, conn=None, input_values: Optio
         "standardWarnings": standard_warnings,
         "items": items,
         "diagnosis": diagnosis,
+        "groups": groups,
     }
 
 
@@ -4718,22 +4917,26 @@ def json_array(value) -> list:
         return []
 
 
-def normalize_sample_values(values: Optional[dict], require_all: bool = True) -> dict:
+def normalize_sample_values(values: Optional[dict], require_all: bool = True, sample_type: str = SAMPLE_TYPE_BOILER_WATER) -> dict:
     source = values or {}
     normalized = {}
-    for item in WATER_TEST_ITEMS:
-        code = item["code"]
+    if sample_type == SAMPLE_TYPE_COMBINED:
+        item_specs = [(key, source_code, name) for key, source_code, _, name in COMBINED_VALUE_ITEMS]
+    else:
+        item_codes = set(SOFTENED_WATER_ITEM_CODES) if sample_type == SAMPLE_TYPE_SOFTENED_WATER else {item["code"] for item in WATER_TEST_ITEMS}
+        item_specs = [(item["code"], item["code"], item["name"]) for item in WATER_TEST_ITEMS if item["code"] in item_codes]
+    for code, source_code, name in item_specs:
         raw = str(source.get(code, "")).strip()
         if not raw:
             if require_all:
-                raise HTTPException(status_code=400, detail=f"请填写{item['name']}确认值")
+                raise HTTPException(status_code=400, detail=f"请填写{name}确认值")
             continue
         try:
             number = float(raw)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"{item['name']}读数格式不正确") from exc
-        if number < 0 or (code == "ph" and number > 14):
-            raise HTTPException(status_code=400, detail=f"{item['name']}读数超出合理范围")
+            raise HTTPException(status_code=400, detail=f"{name}读数格式不正确") from exc
+        if number < 0 or (source_code == "ph" and number > 14):
+            raise HTTPException(status_code=400, detail=f"{name}读数超出合理范围")
         normalized[code] = raw
     return normalized
 
@@ -4749,6 +4952,8 @@ def inspection_sample_response(row) -> dict:
         "boilerName": sample.get("boiler_name") or "",
         "packCode": sample.get("pack_code") or "",
         "inspectionStatus": sample.get("inspection_status") or "",
+        "sampleType": sample.get("sample_type") or SAMPLE_TYPE_BOILER_WATER,
+        "sampleTypeName": SAMPLE_TYPE_NAMES.get(sample.get("sample_type") or SAMPLE_TYPE_BOILER_WATER, "炉水"),
         "imageUrl": sample["image_url"],
         "imageWidth": sample.get("image_width"),
         "imageHeight": sample.get("image_height"),
@@ -4777,6 +4982,8 @@ def inspection_sample_response(row) -> dict:
 @app.post("/inspections")
 def create_inspection(req: InspectionCreateReq, authorization: Optional[str] = Header(None)):
     current_user = get_current_user(authorization)
+    if req.sampleType not in SAMPLE_TYPE_NAMES:
+        raise HTTPException(status_code=400, detail="检测类型仅支持组合检测、炉水或软化水")
     with db() as conn:
         user_onboarding = onboarding_status(conn, current_user["id"], req.boilerId)
         if user_onboarding["required"]:
@@ -4810,22 +5017,23 @@ def create_inspection(req: InspectionCreateReq, authorization: Optional[str] = H
         cur = conn.execute(
             """
             INSERT INTO inspections(
-              enterprise_id, boiler_id, material_pack_id, inspection_type, retest_task_id,
+              enterprise_id, boiler_id, material_pack_id, inspection_type, sample_type, retest_task_id,
               inspector_user_id, inspector_name, status, created_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, 'created', ?)
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)
             """,
             (
                 boiler["enterprise_id"],
                 req.boilerId,
                 req.materialPackId,
                 req.inspectionType,
+                req.sampleType,
                 req.retestTaskId,
                 current_user.get("id"),
                 current_user.get("name") or current_user.get("username"),
                 now(),
             ),
         )
-        return {"inspectionId": cur.lastrowid, "boilerId": req.boilerId, "materialPackId": req.materialPackId, "status": "created"}
+        return {"inspectionId": cur.lastrowid, "boilerId": req.boilerId, "materialPackId": req.materialPackId, "sampleType": req.sampleType, "sampleTypeName": SAMPLE_TYPE_NAMES[req.sampleType], "status": "created"}
 
 
 @app.post("/inspections/create")
@@ -4880,7 +5088,7 @@ def get_upload(filename: str):
 def recognize(req: RecognizeReq, authorization: Optional[str] = Header(None)):
     current_user = get_current_user(authorization)
     with db() as conn:
-        inspection = row_to_dict(conn.execute("SELECT id, enterprise_id, image_url FROM inspections WHERE id = ?", (req.inspectionId,)).fetchone())
+        inspection = row_to_dict(conn.execute("SELECT id, enterprise_id, image_url, sample_type FROM inspections WHERE id = ?", (req.inspectionId,)).fetchone())
         if not inspection:
             raise HTTPException(status_code=404, detail="inspection not found")
         if current_user["role"] != "platform_admin" and int(current_user["enterpriseId"]) != int(inspection["enterprise_id"]):
@@ -4891,7 +5099,7 @@ def recognize(req: RecognizeReq, authorization: Optional[str] = Header(None)):
         if sample.get("quality_status") == "reject":
             messages = "；".join(flag.get("message", "") for flag in json_array(sample.get("quality_flags_json")))
             raise HTTPException(status_code=400, detail=messages or "照片质量不合格，请重新拍摄")
-        manual_values = normalize_sample_values(req.values, require_all=True) if req.values else None
+        manual_values = normalize_sample_values(req.values, require_all=True, sample_type=inspection.get("sample_type") or SAMPLE_TYPE_BOILER_WATER) if req.values else None
         result = inspection_result_payload(req.inspectionId, conn, manual_values)
         cur = conn.execute(
             """
@@ -4974,7 +5182,7 @@ def list_inspection_samples(
     with db() as conn:
         rows = conn.execute(
             f"""
-            SELECT s.*, i.enterprise_id, i.boiler_id, i.status AS inspection_status,
+            SELECT s.*, i.enterprise_id, i.boiler_id, i.sample_type, i.status AS inspection_status,
                    e.name AS enterprise_name, b.name AS boiler_name, p.code AS pack_code
             FROM inspection_samples s
             JOIN inspections i ON i.id = s.inspection_id
@@ -4998,12 +5206,11 @@ def review_inspection_sample(
     current_user = require_roles(authorization, ("platform_admin", "enterprise_admin"))
     if req.labelStatus not in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail="标注状态仅支持 approved 或 rejected")
-    confirmed_values = normalize_sample_values(req.confirmedValues, require_all=True) if req.labelStatus == "approved" else {}
     with db() as conn:
         sample = row_to_dict(
             conn.execute(
                 """
-                SELECT s.*, i.enterprise_id, i.boiler_id, i.status AS inspection_status,
+                SELECT s.*, i.enterprise_id, i.boiler_id, i.sample_type, i.status AS inspection_status,
                        e.name AS enterprise_name, b.name AS boiler_name, p.code AS pack_code
                 FROM inspection_samples s
                 JOIN inspections i ON i.id = s.inspection_id
@@ -5018,6 +5225,11 @@ def review_inspection_sample(
         if not sample:
             raise HTTPException(status_code=404, detail="检测样本不存在")
         ensure_enterprise_scope(current_user, sample["enterprise_id"])
+        confirmed_values = normalize_sample_values(
+            req.confirmedValues,
+            require_all=True,
+            sample_type=sample.get("sample_type") or SAMPLE_TYPE_BOILER_WATER,
+        ) if req.labelStatus == "approved" else {}
         conn.execute(
             """
             UPDATE inspection_samples
@@ -5038,7 +5250,7 @@ def review_inspection_sample(
         )
         updated = conn.execute(
             """
-            SELECT s.*, i.enterprise_id, i.boiler_id, i.status AS inspection_status,
+            SELECT s.*, i.enterprise_id, i.boiler_id, i.sample_type, i.status AS inspection_status,
                    e.name AS enterprise_name, b.name AS boiler_name, p.code AS pack_code
             FROM inspection_samples s
             JOIN inspections i ON i.id = s.inspection_id
@@ -5237,7 +5449,8 @@ def list_inspections(status: Optional[str] = None, boilerId: Optional[int] = Non
         rows = conn.execute(
             f"""
             SELECT i.id AS inspectionId, i.boiler_id AS boilerId, b.name AS boilerName,
-                   i.material_pack_id AS materialPackId, i.status, i.score, i.summary,
+                   i.material_pack_id AS materialPackId, i.sample_type AS sampleType,
+                   i.status, i.score, i.summary,
                    i.image_url AS imageUrl, i.result_json AS resultJson, i.created_at AS createdAt,
                    i.inspector_user_id AS inspectorUserId, i.inspector_name AS inspectorName
             FROM inspections i
@@ -5250,6 +5463,7 @@ def list_inspections(status: Optional[str] = None, boilerId: Optional[int] = Non
         result = []
         for row in rows:
             item = row_to_dict(row)
+            item["sampleTypeName"] = SAMPLE_TYPE_NAMES.get(item.get("sampleType") or SAMPLE_TYPE_BOILER_WATER, "炉水")
             item["result"] = json.loads(item.pop("resultJson")) if item.get("resultJson") else {}
             result.append(item)
         return result

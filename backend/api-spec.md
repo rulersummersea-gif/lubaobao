@@ -294,9 +294,10 @@
 ## 5. 巡检
 ### POST `/inspections`
 ```json
-{ "boilerId": 1001, "materialPackId": 5001, "inspectionType": "daily", "retestTaskId": null }
+{ "boilerId": 1001, "materialPackId": 5001, "inspectionType": "daily", "sampleType": "combined", "retestTaskId": null }
 ```
 创建时会校验材料包已激活、已绑定当前锅炉，并且材料包和锅炉属于同一企业。
+新巡检默认使用 `combined`：一张照片同时包含软化水2项与炉水6项。`softened_water` 和 `boiler_water` 仅用于兼容历史单水样记录。
 复测巡检时传 `inspectionType: "retest"` 和对应 `retestTaskId`，识别完成后会自动回填到原复测任务。
 
 ### POST `/inspections/create`
@@ -319,6 +320,8 @@
 {
   "inspectionId": 9001,
   "values": {
+    "softened_ph": "7.0",
+    "softened_hardness": "0.02",
     "ph": "8.2",
     "phosphate": "8",
     "sulfite": "18",
@@ -328,7 +331,7 @@
   }
 }
 ```
-灰测阶段支持人工录入 6 项试纸读数，后端按 `values` 直接生成诊断和复测任务；若未传 `values`，使用样例值兜底。识别前必须上传照片，质量状态为 `reject` 时拒绝识别。照片、质量指标和人工读数会写入检测样本，供后续算法训练和人工复核。
+灰测阶段一次录入8个读数：软化水pH、软化水硬度及炉水六项。未来AI模块只输出读数、置信度和算法版本，不判断合格状态、不生成诊断；后端规则引擎按两组独立标准完成判断、诊断和复测任务。识别前必须上传照片，质量状态为 `reject` 时拒绝继续。照片、质量指标和读数会写入检测样本，供后续算法训练和人工复核。
 当前第一版锅水检测模板按优先级返回 6 项：
 1. pH：pH试纸
 2. 磷酸根：磷酸根试纸
@@ -341,7 +344,7 @@
 数据库同步维护 `water_test_items` 检测项目模板表、`water_quality_limits` 标准限值表，以及 `inspection_test_results` 单次检测结果明细表。
 当前灰测标准来源标记为 `GB/T 1576 工业锅炉水质`，范围按工业蒸汽锅炉锅水/炉水压力段配置；识别时会读取锅炉额定压力并自动匹配对应压力段。正式上线前需结合锅炉额定压力、补给水处理方式和最新国标原文复核。
 第一阶段产品坚持试纸优先，滴定、仪表或第三方检测只作为异常复核和高级能力，不作为日常小程序巡检的刚性流程。
-当前版本只做锅水/炉水 6 项，不采集给水数据；数据库和标准表保留 `sample_type` 能力，后续可扩展给水/补给水。
+当前版本使用统一入口和统一照片，但结果仍按水样分组：软化器出口软化水检测pH和硬度，不按锅炉压力段匹配；炉水检测原有6项并按额定压力匹配标准。软化水限值需在后台按现场方案确认，未配置时结果标记为 `unknown`，不会套用炉水标准。
 识别结果会根据异常组合生成动态诊断，`diagnosis` 每项包含：
 ```json
 {
@@ -394,7 +397,7 @@
 后台识别样本列表，需要 `platform_admin` 或 `enterprise_admin`。支持 `qualityStatus` 和 `labelStatus` 筛选，返回照片质量、人工值、AI值、确认值和审核信息。
 
 ### PUT `/inspection-samples/{inspectionId}/review`
-审核检测样本。通过时必须提交完整六项确认值；剔除时可以只提交原因。
+审核检测样本。组合检测通过时必须提交完整8项确认值；历史单水样记录仍按软化水2项或炉水6项审核。剔除时可以只提交原因。
 ```json
 {
   "labelStatus": "approved",

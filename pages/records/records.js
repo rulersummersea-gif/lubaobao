@@ -31,6 +31,7 @@ Page({
       boilerName: item.boilerName || `锅炉 #${item.boilerId || '-'}`,
       time: item.time || item.createdAt || '',
       inspectorName: item.inspectorName || '',
+      sampleTypeName: result.sampleTypeName || item.sampleTypeName || (result.sampleType === 'combined' || item.sampleType === 'combined' ? '软化水 + 炉水' : result.sampleType === 'softened_water' || item.sampleType === 'softened_water' ? '软化水' : '炉水'),
       summary: result.summary || item.summary || `状态：${item.status || '-'}`,
       riskLabel: warning ? '预警' : '正常',
       riskClass: warning ? 'tag-warn' : 'tag-normal'

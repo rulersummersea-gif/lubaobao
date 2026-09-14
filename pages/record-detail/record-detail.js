@@ -42,6 +42,7 @@ Page({
       boilerName: raw.boilerName || `巡检记录 #${id}`,
       time: raw.time || '',
       inspectorName: raw.inspectorName || '',
+      sampleTypeName: raw.sampleTypeName || (raw.sampleType === 'combined' ? '软化水 + 炉水' : raw.sampleType === 'softened_water' ? '软化水' : '炉水'),
       summary: raw.summary || '',
       ratedPressureMpa: raw.ratedPressureMpa || '',
       standardWarnings: raw.standardWarnings || [],
